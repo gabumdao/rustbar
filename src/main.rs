@@ -1,6 +1,7 @@
 pub mod config;
 pub mod wayland;
 pub mod render;
+pub mod state;
 
 use wayland_client::Connection;
 
@@ -16,11 +17,11 @@ fn main() {
     let (globals, mut event_queue) = wayland_client::globals::registry_queue_init(&conn).expect("Failed to create queue");
     let qh = event_queue.handle();
 
-    let mut event_loop: calloop::EventLoop<wayland::State> = calloop::EventLoop::try_new().unwrap();
+    let mut event_loop: calloop::EventLoop<state::State> = calloop::EventLoop::try_new().unwrap();
     let loop_handle = event_loop.handle();
     let loop_signal = event_loop.get_signal();
 
-    let mut state = wayland::State {
+    let mut state = state::State {
         registry_state: smithay_client_toolkit::registry::RegistryState::new(&globals),
         compositor_state: smithay_client_toolkit::compositor::CompositorState::bind(&globals, &qh).expect("wl_compositor missing"),
         output_state: smithay_client_toolkit::output::OutputState::new(&globals, &qh),

@@ -105,19 +105,12 @@ pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
                         let cur_sw = sw - (i as f32);
                         if cur_sw <= 0.0 { continue; }
                         
-                        if let Some(shadow_rect) = Rect::from_xywh(
-                            inner_rect.x() - cur_sw / 2.0,
-                            inner_rect.y() - cur_sw / 2.0,
-                            inner_rect.width() + cur_sw,
-                            inner_rect.height() + cur_sw,
-                        ) {
-                            let mut pb = PathBuilder::new();
-                            push_rounded_rect(&mut pb, shadow_rect, radius + (cur_sw / 2.0));
-                            if let Some(path) = pb.finish() {
-                                let mut stroke = Stroke::default();
-                                stroke.width = cur_sw;
-                                pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
-                            }
+                        let mut pb = PathBuilder::new();
+                        push_rounded_rect(&mut pb, inner_rect, radius);
+                        if let Some(path) = pb.finish() {
+                            let mut stroke = Stroke::default();
+                            stroke.width = cur_sw * 2.0;
+                            pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
                         }
                     }
                 }
