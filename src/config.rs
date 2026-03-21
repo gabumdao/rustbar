@@ -16,6 +16,17 @@ pub struct Config {
     pub color: String,
     #[serde(default)]
     pub preset: Option<String>,
+    
+    #[serde(default = "default_shadow_width")]
+    pub shadow_width: f32,
+    #[serde(default = "default_shadow_color")]
+    pub shadow_color: String,
+    
+    #[serde(default = "default_highlight_width")]
+    pub highlight_width: f32,
+    #[serde(default = "default_highlight_color")]
+    pub highlight_color: String,
+
     #[serde(default)]
     pub monitors: HashMap<String, MonitorConfig>,
 }
@@ -28,12 +39,20 @@ pub struct MonitorConfig {
     pub opacity: Option<f32>,
     pub color: Option<String>,
     pub preset: Option<String>,
+    pub shadow_width: Option<f32>,
+    pub shadow_color: Option<String>,
+    pub highlight_width: Option<f32>,
+    pub highlight_color: Option<String>,
 }
 
 fn default_thickness() -> u32 { 16 }
 fn default_radius() -> u32 { 24 }
 fn default_opacity() -> f32 { 1.0 }
 fn default_color() -> String { "#000000".to_string() }
+fn default_shadow_width() -> f32 { 12.0 }
+fn default_shadow_color() -> String { "#000000AA".to_string() }
+fn default_highlight_width() -> f32 { 3.0 }
+fn default_highlight_color() -> String { "#FFFFFF22".to_string() }
 
 impl Default for Config {
     fn default() -> Self {
@@ -43,6 +62,10 @@ impl Default for Config {
             opacity: default_opacity(),
             color: default_color(),
             preset: None,
+            shadow_width: default_shadow_width(),
+            shadow_color: default_shadow_color(),
+            highlight_width: default_highlight_width(),
+            highlight_color: default_highlight_color(),
             monitors: HashMap::new(),
         }
     }
@@ -73,6 +96,10 @@ impl Config {
             opacity: Some(self.opacity),
             color: Some(self.color.clone()),
             preset: self.preset.clone(),
+            shadow_width: Some(self.shadow_width),
+            shadow_color: Some(self.shadow_color.clone()),
+            highlight_width: Some(self.highlight_width),
+            highlight_color: Some(self.highlight_color.clone()),
         };
 
         if let Some(spec) = self.monitors.get(name) {
@@ -83,6 +110,10 @@ impl Config {
                 opacity: spec.opacity.or(global.opacity),
                 color: spec.color.clone().or(global.color),
                 preset: spec.preset.clone().or(global.preset),
+                shadow_width: spec.shadow_width.or(global.shadow_width),
+                shadow_color: spec.shadow_color.clone().or(global.shadow_color),
+                highlight_width: spec.highlight_width.or(global.highlight_width),
+                highlight_color: spec.highlight_color.clone().or(global.highlight_color),
             }
         } else {
             global

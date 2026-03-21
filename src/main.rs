@@ -4,13 +4,16 @@ pub mod render;
 
 use smithay_client_toolkit::registry::RegistryState;
 use smithay_client_toolkit::output::OutputState;
-use smithay_client_toolkit::shm::Shm;
 use smithay_client_toolkit::shell::wlr_layer::LayerShell;
 use wayland_client::Connection;
 use calloop::{EventLoop, LoopSignal};
 use calloop_wayland_source::WaylandSource;
-
 use smithay_client_toolkit::compositor::CompositorState;
+
+pub enum AppEvent {
+    ReloadConfig,
+    CheckFullscreen,
+}
 
 fn main() {
     env_logger::init();
@@ -34,12 +37,11 @@ fn main() {
         active_surfaces: Vec::new(),
         dimensions: std::collections::HashMap::new(),
         pools: std::collections::HashMap::new(),
+        output_names: std::collections::HashMap::new(),
     };
 
-    // Perform an initial roundtrip to populate outputs and receive initial events
     event_queue.roundtrip(&mut state).expect("Roundtrip failed");
 
-    // Output setup
     state.shm = Some(smithay_client_toolkit::shm::Shm::bind(&globals, &qh).expect("wl_shm missing"));
     state.layer_shell = Some(smithay_client_toolkit::shell::wlr_layer::LayerShell::bind(&globals, &qh).expect("zwlr_layer_shell_v1 missing"));
 
@@ -48,16 +50,16 @@ fn main() {
         state.new_output(&conn, &qh, output);
     }
 
-    // Now insert the queue into the event loop
     calloop_wayland_source::WaylandSource::new(conn.clone(), event_queue).insert(loop_handle.clone()).unwrap();
 
     let (tx, rx) = calloop::channel::channel();
     
+    let tx_clone = tx.clone();
     std::thread::spawn(move || {
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
             if let Ok(event) = res {
                 if event.kind.is_modify() || event.kind.is_create() {
-                   let _ = tx.send(());
+                   let _ = tx_clone.send(AppEvent::ReloadConfig);
                 }
             }
         }).expect("Failed to create file watcher");
@@ -68,11 +70,40 @@ fn main() {
         loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
     });
 
+    if let (Ok(xdg), Ok(sig)) = (std::env::var("XDG_RUNTIME_DIR"), std::env::var("HYPRLAND_INSTANCE_SIGNATURE")) {
+        let tx_ipc = tx.clone();
+        std::thread::spawn(move || {
+            let socket_path = format!("{}/hypr/{}/.socket2.sock", xdg, sig);
+            loop {
+                if let Ok(stream) = std::os::unix::net::UnixStream::connect(&socket_path) {
+                    use std::io::{BufReader, BufRead};
+                    let reader = BufReader::new(stream);
+                    for line in reader.lines().flatten() {
+                        if line.starts_with("fullscreen>>") || line.starts_with("workspace>>") || line.starts_with("activewindow>>") || line.starts_with("focusedmon>>") {
+                            let _ = tx_ipc.send(AppEvent::CheckFullscreen);
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        });
+    }
+
+    // Trigger initial fullscreen check
+    let _ = tx.send(AppEvent::CheckFullscreen);
+
     event_loop.handle().insert_source(rx, |event, _, state| {
-        if let calloop::channel::Event::Msg(_) = event {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            state.config = config::Config::load(std::path::Path::new("rustbar.toml"));
-            state.refresh_all();
+        if let calloop::channel::Event::Msg(msg) = event {
+            match msg {
+                AppEvent::ReloadConfig => {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    state.config = config::Config::load(std::path::Path::new("rustbar.toml"));
+                    state.refresh_all();
+                }
+                AppEvent::CheckFullscreen => {
+                    state.update_fullscreen();
+                }
+            }
         }
     }).unwrap();
 

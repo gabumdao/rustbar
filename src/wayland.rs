@@ -28,6 +28,7 @@ pub struct State {
     pub active_surfaces: Vec<LayerSurface>,
     pub dimensions: HashMap<u32, (u32, u32)>,
     pub pools: HashMap<u32, (SlotPool, Option<Buffer>)>,
+    pub output_names: HashMap<u32, String>,
 }
 
 impl State {
@@ -35,7 +36,8 @@ impl State {
         for layer in &self.active_surfaces {
             let id = layer.wl_surface().id().protocol_id();
             if let Some(&(width, height)) = self.dimensions.get(&id) {
-                let m_config = self.config.for_monitor("default");
+                let name = self.output_names.get(&id).map(|s| s.as_str()).unwrap_or("default");
+                let m_config = self.config.for_monitor(name);
                 let pixels = crate::render::draw_frame(width, height, &m_config);
                 
                 if self.shm.is_some() {
@@ -50,6 +52,30 @@ impl State {
                                 layer.wl_surface().damage_buffer(0, 0, width as i32, height as i32);
                                 layer.wl_surface().commit();
                                 *active_buf = Some(buffer);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn update_fullscreen(&mut self) {
+        if let Ok(output) = std::process::Command::new("hyprctl").args(&["monitors", "-j"]).output() {
+            if let Ok(monitors) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout) {
+                for m in monitors {
+                    if let Some(name) = m["name"].as_str() {
+                        let has_fullscreen = m["hasFullscreen"].as_bool().unwrap_or(false);
+                        
+                        for layer in &self.active_surfaces {
+                            let id = layer.wl_surface().id().protocol_id();
+                            if self.output_names.get(&id).map(|s| s.as_str()) == Some(name) {
+                                if has_fullscreen {
+                                    layer.set_layer(smithay_client_toolkit::shell::wlr_layer::Layer::Bottom);
+                                } else {
+                                    layer.set_layer(smithay_client_toolkit::shell::wlr_layer::Layer::Overlay);
+                                }
+                                layer.commit();
                             }
                         }
                     }
@@ -106,6 +132,8 @@ impl OutputHandler for State {
                 layer.set_keyboard_interactivity(KeyboardInteractivity::None);
                 layer.commit();
                 
+                let id = layer.wl_surface().id().protocol_id();
+                self.output_names.insert(id, name.clone());
                 self.active_surfaces.push(layer);
             }
         }
