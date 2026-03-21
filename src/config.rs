@@ -122,20 +122,26 @@ impl Default for Config {
 
 impl Config {
     pub fn load(path: &Path) -> Self {
-        match fs::read_to_string(path) {
-            Ok(content) => match toml::from_str(&content) {
-                Ok(cfg) => cfg,
-                Err(e) => {
-                    error!("Failed to parse config at {}: {}", path.display(), e);
-                    Config::default()
-                }
-            },
+        let config_value = match load_value_with_includes(path, &mut Vec::new()) {
+            Ok(v) => v,
             Err(e) => {
-                info!("Could not read config at {} ({}), using defaults.", path.display(), e);
+                info!("Could not read or parse config at {}: {}", path.display(), e);
+                return Config::default();
+            }
+        };
+
+        println!("Config Value: {:?}", config_value);
+
+        match config_value.try_into::<Config>() {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                println!("Failed to parse config: {:?}", e);
+                error!("Failed to parse config at {}: {}", path.display(), e);
                 Config::default()
             }
         }
     }
+
 
     pub fn for_monitor(&self, name: &str) -> MonitorConfig {
         let global = MonitorConfig {
@@ -193,3 +199,147 @@ impl Config {
         }
     }
 }
+
+fn load_value_with_includes(
+    path: &Path,
+    visited: &mut Vec<std::path::PathBuf>,
+) -> Result<toml::Value, Box<dyn std::error::Error>> {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if visited.contains(&canonical) {
+        return Err(format!("Circular include detected: {}", path.display()).into());
+    }
+    visited.push(canonical.clone());
+
+    let content = fs::read_to_string(path)?;
+    let mut value: toml::Value = toml::from_str(&content)?;
+
+    let mut vars = HashMap::new();
+
+    // 1. Process includes
+    if let Some(includes) = value.get("include") {
+        let include_paths: Vec<String> = match includes {
+            toml::Value::String(s) => vec![s.clone()],
+            toml::Value::Array(a) => a
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect(),
+            _ => vec![],
+        };
+
+        for inc in include_paths {
+            let inc_path = path.parent().unwrap_or(Path::new("")).join(inc);
+            match load_value_with_includes(&inc_path, visited) {
+                Ok(inc_val) => {
+                    if let Some(inc_vars) = inc_val.get("variables").and_then(|v| v.as_table()) {
+                        for (k, v) in inc_vars {
+                            vars.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to load included config {}: {}", inc_path.display(), e);
+                }
+            }
+        }
+    }
+
+    // 2. Extract local variables
+    if let Some(local_vars) = value.get("variables").and_then(|v| v.as_table()) {
+        for (k, v) in local_vars {
+            vars.insert(k.clone(), v.clone());
+        }
+    }
+
+    // 3. Expand variables
+    expand_variables(&mut value, &vars);
+
+    visited.pop();
+
+    Ok(value)
+}
+
+fn expand_variables(value: &mut toml::Value, vars: &HashMap<String, toml::Value>) {
+    match value {
+        toml::Value::String(s) => {
+            // Full replacement
+            if s.starts_with('$') && vars.contains_key(&s[1..]) {
+                *value = vars[&s[1..]].clone();
+            } else if s.starts_with("${") && s.ends_with('}') && vars.contains_key(&s[2..s.len() - 1]) {
+                *value = vars[&s[2..s.len() - 1]].clone();
+            } else {
+                // Substring interpolation
+                let mut new_s = s.clone();
+                for (k, v) in vars {
+                    let replacement = match v {
+                        toml::Value::String(v_str) => Some(v_str.clone()),
+                        toml::Value::Integer(v_int) => Some(v_int.to_string()),
+                        toml::Value::Float(v_float) => Some(v_float.to_string()),
+                        toml::Value::Boolean(v_bool) => Some(v_bool.to_string()),
+                        _ => None,
+                    };
+
+                    if let Some(r) = replacement {
+                        new_s = new_s.replace(&format!("${}", k), &r);
+                        new_s = new_s.replace(&format!("${{{}}}", k), &r);
+                    }
+                }
+                *s = new_s;
+            }
+        }
+        toml::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                expand_variables(v, vars);
+            }
+        }
+        toml::Value::Table(tbl) => {
+            for (_, v) in tbl.iter_mut() {
+                expand_variables(v, vars);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::env::temp_dir;
+
+    #[test]
+    fn test_variable_expansion_and_include() {
+        let dir = temp_dir();
+        let main_path = dir.join("main.toml");
+        let inc_path = dir.join("inc.toml");
+
+        let mut inc_file = fs::File::create(&inc_path).unwrap();
+        writeln!(inc_file, "[variables]\ncolor1 = \"#FF0000\"\nnum1 = 42").unwrap();
+
+        let mut main_file = fs::File::create(&main_path).unwrap();
+        let config_str = r##"
+include = ["inc.toml"]
+
+thickness = "$num1"
+opacity = "$my_opacity"
+color = "$my_color"
+shadow_color = "${color1}AA"
+
+[variables]
+my_opacity = 0.5
+my_color = "#00FF00"
+"##;
+        write!(main_file, "{}", config_str).unwrap();
+
+        let config = Config::load(&main_path);
+
+        assert_eq!(config.thickness, 42);
+        assert_eq!(config.opacity, 0.5);
+        assert_eq!(config.color, "#00FF00");
+        assert_eq!(config.shadow_color, "#FF0000AA");
+
+        // Clean up
+        let _ = fs::remove_file(main_path);
+        let _ = fs::remove_file(inc_path);
+    }
+}
+
