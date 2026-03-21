@@ -46,16 +46,20 @@ pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
         pixmap.fill_rect(full_rect, &paint, Transform::identity(), None);
     }
 
-    let thickness = config.thickness.unwrap_or(16) as f32;
+    let t_base = config.thickness.unwrap_or(16) as f32;
+    let t_top = config.thickness_top.map(|v| v as f32).unwrap_or(t_base);
+    let t_bottom = config.thickness_bottom.map(|v| v as f32).unwrap_or(t_base);
+    let t_left = config.thickness_left.map(|v| v as f32).unwrap_or(t_base);
+    let t_right = config.thickness_right.map(|v| v as f32).unwrap_or(t_base);
     let radius = config.radius.unwrap_or(24) as f32;
     
     let is_crt = config.preset.as_deref().unwrap_or("").to_lowercase() == "crt";
 
     if let Some(inner_rect) = Rect::from_xywh(
-        thickness, 
-        thickness, 
-        width as f32 - 2.0 * thickness, 
-        height as f32 - 2.0 * thickness
+        t_left, 
+        t_top, 
+        width as f32 - t_left - t_right, 
+        height as f32 - t_top - t_bottom
     ) {
         if inner_rect.width() > 0.0 && inner_rect.height() > 0.0 {
             
@@ -81,24 +85,44 @@ pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
                     }
                 }
 
-                // Inner Shadow (drawn on the inner edge of the bezel)
+                // Inner Shadow (drawn on the inner edge of the bezel, fading outwards)
                 let sw = config.shadow_width.unwrap_or(12.0);
                 if sw > 0.0 {
-                    if let Some(shadow_rect) = Rect::from_xywh(
-                        inner_rect.x() - sw / 2.0,
-                        inner_rect.y() - sw / 2.0,
-                        inner_rect.width() + sw,
-                        inner_rect.height() + sw,
-                    ) {
-                        let mut pb = PathBuilder::new();
-                        push_rounded_rect(&mut pb, shadow_rect, radius + (sw / 2.0));
-                        if let Some(path) = pb.finish() {
-                            let mut stroke_paint = Paint::default();
-                            stroke_paint.set_color(parse_hex_color(config.shadow_color.as_deref().unwrap_or("#000000AA"), config.opacity.unwrap_or(1.0)));
-                            stroke_paint.anti_alias = true;
-                            let mut stroke = Stroke::default();
-                            stroke.width = sw;
-                            pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
+                    let shadow_c = parse_hex_color(config.shadow_color.as_deref().unwrap_or("#000000AA"), config.opacity.unwrap_or(1.0));
+                    let steps = sw.ceil() as usize;
+                    if steps > 0 {
+                        let total_a = shadow_c.alpha() as f32 / 255.0;
+                        let a_step = 1.0 - (1.0 - total_a).powf(1.0 / steps as f32);
+                        
+                        let step_color = tiny_skia::Color::from_rgba(
+                            shadow_c.red() as f32 / 255.0,
+                            shadow_c.green() as f32 / 255.0,
+                            shadow_c.blue() as f32 / 255.0,
+                            a_step,
+                        ).unwrap_or_else(|| tiny_skia::Color::BLACK);
+
+                        let mut stroke_paint = Paint::default();
+                        stroke_paint.set_color(step_color);
+                        stroke_paint.anti_alias = true;
+
+                        for i in 0..steps {
+                            let cur_sw = sw - (i as f32);
+                            if cur_sw <= 0.0 { continue; }
+                            
+                            if let Some(shadow_rect) = Rect::from_xywh(
+                                inner_rect.x() - cur_sw / 2.0,
+                                inner_rect.y() - cur_sw / 2.0,
+                                inner_rect.width() + cur_sw,
+                                inner_rect.height() + cur_sw,
+                            ) {
+                                let mut pb = PathBuilder::new();
+                                push_rounded_rect(&mut pb, shadow_rect, radius + (cur_sw / 2.0));
+                                if let Some(path) = pb.finish() {
+                                    let mut stroke = Stroke::default();
+                                    stroke.width = cur_sw;
+                                    pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
+                                }
+                            }
                         }
                     }
                 }

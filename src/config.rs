@@ -8,6 +8,10 @@ use log::{error, info};
 pub struct Config {
     #[serde(default = "default_thickness")]
     pub thickness: u32,
+    pub thickness_top: Option<u32>,
+    pub thickness_bottom: Option<u32>,
+    pub thickness_left: Option<u32>,
+    pub thickness_right: Option<u32>,
     #[serde(default = "default_radius")]
     pub radius: u32,
     #[serde(default = "default_opacity")]
@@ -35,6 +39,10 @@ pub struct Config {
 pub struct MonitorConfig {
     pub enabled: Option<bool>,
     pub thickness: Option<u32>,
+    pub thickness_top: Option<u32>,
+    pub thickness_bottom: Option<u32>,
+    pub thickness_left: Option<u32>,
+    pub thickness_right: Option<u32>,
     pub radius: Option<u32>,
     pub opacity: Option<f32>,
     pub color: Option<String>,
@@ -58,6 +66,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             thickness: default_thickness(),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
             radius: default_radius(),
             opacity: default_opacity(),
             color: default_color(),
@@ -92,6 +104,10 @@ impl Config {
         let global = MonitorConfig {
             enabled: Some(true),
             thickness: Some(self.thickness),
+            thickness_top: self.thickness_top,
+            thickness_bottom: self.thickness_bottom,
+            thickness_left: self.thickness_left,
+            thickness_right: self.thickness_right,
             radius: Some(self.radius),
             opacity: Some(self.opacity),
             color: Some(self.color.clone()),
@@ -106,6 +122,10 @@ impl Config {
             MonitorConfig {
                 enabled: spec.enabled.or(global.enabled),
                 thickness: spec.thickness.or(global.thickness),
+                thickness_top: spec.thickness_top.or(global.thickness_top),
+                thickness_bottom: spec.thickness_bottom.or(global.thickness_bottom),
+                thickness_left: spec.thickness_left.or(global.thickness_left),
+                thickness_right: spec.thickness_right.or(global.thickness_right),
                 radius: spec.radius.or(global.radius),
                 opacity: spec.opacity.or(global.opacity),
                 color: spec.color.clone().or(global.color),
