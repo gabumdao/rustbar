@@ -23,8 +23,6 @@ fn main() {
     let loop_handle = event_loop.handle();
     let loop_signal = event_loop.get_signal();
 
-    calloop_wayland_source::WaylandSource::new(conn.clone(), event_queue).insert(loop_handle.clone()).unwrap();
-
     let mut state = wayland::State {
         registry_state: smithay_client_toolkit::registry::RegistryState::new(&globals),
         compositor_state: smithay_client_toolkit::compositor::CompositorState::bind(&globals, &qh).expect("wl_compositor missing"),
@@ -38,6 +36,21 @@ fn main() {
         pools: std::collections::HashMap::new(),
     };
 
+    // Perform an initial roundtrip to populate outputs and receive initial events
+    event_queue.roundtrip(&mut state).expect("Roundtrip failed");
+
+    // Output setup
+    state.shm = Some(smithay_client_toolkit::shm::Shm::bind(&globals, &qh).expect("wl_shm missing"));
+    state.layer_shell = Some(smithay_client_toolkit::shell::wlr_layer::LayerShell::bind(&globals, &qh).expect("zwlr_layer_shell_v1 missing"));
+
+    for output in state.output_state.outputs() {
+        use smithay_client_toolkit::output::OutputHandler;
+        state.new_output(&conn, &qh, output);
+    }
+
+    // Now insert the queue into the event loop
+    calloop_wayland_source::WaylandSource::new(conn.clone(), event_queue).insert(loop_handle.clone()).unwrap();
+
     let (tx, rx) = calloop::channel::channel();
     
     std::thread::spawn(move || {
@@ -50,8 +63,7 @@ fn main() {
         }).expect("Failed to create file watcher");
         
         use notify::Watcher;
-        watcher.watch(std::path::Path::new("rustbar.toml"), notify::RecursiveMode::NonRecursive)
-               .expect("Failed to watch rustbar.toml");
+        let _ = watcher.watch(std::path::Path::new("rustbar.toml"), notify::RecursiveMode::NonRecursive);
         
         loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
     });
