@@ -1,0 +1,19 @@
+[package]
+name = "rustbar"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+calloop = "0.14.4"
+calloop-wayland-source = "0.4.1"
+env_logger = "0.11.9"
+log = "0.4.29"
+memmap2 = "0.9.10"
+notify = "8.2.0"
+serde = { version = "1.0.228", features = ["derive"] }
+smithay-client-toolkit = { version = "0.20.0", default-features = false, features = ["calloop"] }
+tiny-skia = "0.12.0"
+toml = "1.0.7"
+wayland-client = "0.31.13"
+wayland-protocols = "0.32.11"
+wayland-protocols-wlr = "0.3.11"
