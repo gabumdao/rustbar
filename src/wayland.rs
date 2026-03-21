@@ -70,10 +70,13 @@ impl State {
                         for layer in &self.active_surfaces {
                             let id = layer.wl_surface().id().protocol_id();
                             if self.output_names.get(&id).map(|s| s.as_str()) == Some(name) {
+                                let m_config = self.config.for_monitor(name);
+                                let layer_config = m_config.layer.unwrap_or_default();
+                                
                                 if has_fullscreen {
                                     layer.set_layer(smithay_client_toolkit::shell::wlr_layer::Layer::Bottom);
                                 } else {
-                                    layer.set_layer(smithay_client_toolkit::shell::wlr_layer::Layer::Overlay);
+                                    layer.set_layer(map_layer(&layer_config.level));
                                 }
                                 layer.commit();
                             }
@@ -82,6 +85,25 @@ impl State {
                 }
             }
         }
+    }
+}
+
+fn map_layer(level: &str) -> Layer {
+    match level.to_lowercase().as_str() {
+        "background" => Layer::Background,
+        "bottom" => Layer::Bottom,
+        "top" => Layer::Top,
+        "overlay" => Layer::Overlay,
+        _ => Layer::Bottom,
+    }
+}
+
+fn map_keyboard_interactivity(interactivity: &str) -> KeyboardInteractivity {
+    match interactivity.to_lowercase().as_str() {
+        "none" => KeyboardInteractivity::None,
+        "on_demand" => KeyboardInteractivity::OnDemand,
+        "exclusive" => KeyboardInteractivity::Exclusive,
+        _ => KeyboardInteractivity::None,
     }
 }
 
@@ -113,23 +135,33 @@ impl OutputHandler for State {
             if let Some(layer_shell) = &self.layer_shell {
                 let surface = self.compositor_state.create_surface(qh);
                 
-                // Create an empty input region so clicks pass through
-                let region = self.compositor_state.wl_compositor().create_region(qh, ());
-                surface.set_input_region(Some(&region));
-                region.destroy();
+                let layer_config = m_config.layer.unwrap_or_default();
+                
+                // Input region for click-through
+                if layer_config.click_through {
+                    let region = self.compositor_state.wl_compositor().create_region(qh, ());
+                    surface.set_input_region(Some(&region));
+                    region.destroy();
+                } else {
+                    surface.set_input_region(None);
+                }
+
+                let layer_level = map_layer(&layer_config.level);
+                let namespace = layer_config.namespace.clone();
+                let keyboard = map_keyboard_interactivity(&layer_config.keyboard_interactivity);
 
                 let layer = layer_shell.create_layer_surface(
                     qh,
                     surface,
-                    Layer::Overlay,
-                    Some(name.clone()),
+                    layer_level,
+                    Some(namespace),
                     Some(&output),
                 );
                 
                 layer.set_size(0, 0);
                 layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
-                layer.set_exclusive_zone(0);
-                layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+                layer.set_exclusive_zone(layer_config.exclusive_zone);
+                layer.set_keyboard_interactivity(keyboard);
                 layer.commit();
                 
                 let id = layer.wl_surface().id().protocol_id();

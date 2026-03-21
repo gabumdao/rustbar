@@ -32,7 +32,42 @@ pub struct Config {
     pub highlight_color: String,
 
     #[serde(default)]
+    pub layer: LayerConfig,
+
+    #[serde(default)]
     pub monitors: HashMap<String, MonitorConfig>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct LayerConfig {
+    #[serde(default = "default_layer_level")]
+    pub level: String,
+    #[serde(default = "default_exclusive_zone")]
+    pub exclusive_zone: i32,
+    #[serde(default = "default_keyboard_interactivity")]
+    pub keyboard_interactivity: String,
+    #[serde(default = "default_click_through")]
+    pub click_through: bool,
+    #[serde(default = "default_namespace")]
+    pub namespace: String,
+}
+
+fn default_layer_level() -> String { "bottom".to_string() }
+fn default_exclusive_zone() -> i32 { 0 }
+fn default_keyboard_interactivity() -> String { "none".to_string() }
+fn default_click_through() -> bool { true }
+fn default_namespace() -> String { "rustbar-frame".to_string() }
+
+impl Default for LayerConfig {
+    fn default() -> Self {
+        Self {
+            level: default_layer_level(),
+            exclusive_zone: default_exclusive_zone(),
+            keyboard_interactivity: default_keyboard_interactivity(),
+            click_through: default_click_through(),
+            namespace: default_namespace(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -51,6 +86,7 @@ pub struct MonitorConfig {
     pub shadow_color: Option<String>,
     pub highlight_width: Option<f32>,
     pub highlight_color: Option<String>,
+    pub layer: Option<LayerConfig>,
 }
 
 fn default_thickness() -> u32 { 16 }
@@ -78,6 +114,7 @@ impl Default for Config {
             shadow_color: default_shadow_color(),
             highlight_width: default_highlight_width(),
             highlight_color: default_highlight_color(),
+            layer: LayerConfig::default(),
             monitors: HashMap::new(),
         }
     }
@@ -116,6 +153,7 @@ impl Config {
             shadow_color: Some(self.shadow_color.clone()),
             highlight_width: Some(self.highlight_width),
             highlight_color: Some(self.highlight_color.clone()),
+            layer: Some(self.layer.clone()),
         };
 
         if let Some(spec) = self.monitors.get(name) {
@@ -134,6 +172,21 @@ impl Config {
                 shadow_color: spec.shadow_color.clone().or(global.shadow_color),
                 highlight_width: spec.highlight_width.or(global.highlight_width),
                 highlight_color: spec.highlight_color.clone().or(global.highlight_color),
+                layer: match (&self.layer, &spec.layer) {
+                    (g, Some(s)) => {
+                        let mut merged = g.clone();
+                        // For simplicity, we replace the whole LayerConfig if specified for monitor
+                        // Alternatively, we could merge field by field if needed.
+                        // Usually, users want to override the whole layer behavior per monitor.
+                        merged.level = s.level.clone();
+                        merged.exclusive_zone = s.exclusive_zone;
+                        merged.keyboard_interactivity = s.keyboard_interactivity.clone();
+                        merged.click_through = s.click_through;
+                        merged.namespace = s.namespace.clone();
+                        Some(merged)
+                    }
+                    (g, None) => Some(g.clone()),
+                },
             }
         } else {
             global
