@@ -11,7 +11,7 @@ use smithay_client_toolkit::{
     },
 };
 use wayland_client::{
-    protocol::{wl_output, wl_registry, wl_shm, wl_surface::WlSurface, wl_region::WlRegion},
+    protocol::{wl_output, wl_shm, wl_surface::WlSurface, wl_region::WlRegion},
     Connection, QueueHandle, Proxy, delegate_noop,
 };
 use std::collections::HashMap;

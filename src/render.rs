@@ -52,8 +52,6 @@ pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
     let t_left = config.thickness_left.map(|v| v as f32).unwrap_or(t_base);
     let t_right = config.thickness_right.map(|v| v as f32).unwrap_or(t_base);
     let radius = config.radius.unwrap_or(24) as f32;
-    
-    let is_crt = config.preset.as_deref().unwrap_or("").to_lowercase() == "crt";
 
     if let Some(inner_rect) = Rect::from_xywh(
         t_left, 
@@ -63,65 +61,62 @@ pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
     ) {
         if inner_rect.width() > 0.0 && inner_rect.height() > 0.0 {
             
-            // If CRT mode, draw a drop inner shadow and an outer highlight BEFORE carving the transparent hole, 
-            // Wait, we can't draw *inside* the transparent hole after carving because we need the clear pixels for input passthrough.
-            // But if we draw ON the bezel, the transparent hole is untouched!
+            // Shadow and highlight effects BEFORE carving the transparent hole.
+            // These are drawn ON the bezel.
             
             // A bezel highlight (drawn near the outer screen edge)
-            if is_crt {
-                let hw = config.highlight_width.unwrap_or(3.0);
-                if hw > 0.0 {
-                    if let Some(outer_rect) = Rect::from_xywh(hw/2.0, hw/2.0, width as f32 - hw, height as f32 - hw) {
-                        let mut pb = PathBuilder::new();
-                        push_rounded_rect(&mut pb, outer_rect, 0.0); // sharp outer corners
-                        if let Some(path) = pb.finish() {
-                            let mut stroke_paint = Paint::default();
-                            stroke_paint.set_color(parse_hex_color(config.highlight_color.as_deref().unwrap_or("#FFFFFF22"), config.opacity.unwrap_or(1.0)));
-                            stroke_paint.anti_alias = true;
-                            let mut stroke = Stroke::default();
-                            stroke.width = hw;
-                            pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
-                        }
+            let hw = config.highlight_width.unwrap_or(3.0);
+            if hw > 0.0 {
+                if let Some(outer_rect) = Rect::from_xywh(hw/2.0, hw/2.0, width as f32 - hw, height as f32 - hw) {
+                    let mut pb = PathBuilder::new();
+                    push_rounded_rect(&mut pb, outer_rect, 0.0); // sharp outer corners
+                    if let Some(path) = pb.finish() {
+                        let mut stroke_paint = Paint::default();
+                        stroke_paint.set_color(parse_hex_color(config.highlight_color.as_deref().unwrap_or("#FFFFFF22"), config.opacity.unwrap_or(1.0)));
+                        stroke_paint.anti_alias = true;
+                        let mut stroke = Stroke::default();
+                        stroke.width = hw;
+                        pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
                     }
                 }
+            }
 
-                // Inner Shadow (drawn on the inner edge of the bezel, fading outwards)
-                let sw = config.shadow_width.unwrap_or(12.0);
-                if sw > 0.0 {
-                    let shadow_c = parse_hex_color(config.shadow_color.as_deref().unwrap_or("#000000AA"), config.opacity.unwrap_or(1.0));
-                    let steps = sw.ceil() as usize;
-                    if steps > 0 {
-                        let total_a = shadow_c.alpha() as f32 / 255.0;
-                        let a_step = 1.0 - (1.0 - total_a).powf(1.0 / steps as f32);
+            // Inner Shadow (drawn on the inner edge of the bezel, fading outwards)
+            let sw = config.shadow_width.unwrap_or(12.0);
+            if sw > 0.0 {
+                let shadow_c = parse_hex_color(config.shadow_color.as_deref().unwrap_or("#000000AA"), config.opacity.unwrap_or(1.0));
+                let steps = sw.ceil() as usize;
+                if steps > 0 {
+                    let total_a = shadow_c.alpha() as f32 / 255.0;
+                    let a_step = 1.0 - (1.0 - total_a).powf(1.0 / steps as f32);
+                    
+                    let step_color = tiny_skia::Color::from_rgba(
+                        shadow_c.red() as f32 / 255.0,
+                        shadow_c.green() as f32 / 255.0,
+                        shadow_c.blue() as f32 / 255.0,
+                        a_step,
+                    ).unwrap_or_else(|| tiny_skia::Color::BLACK);
+
+                    let mut stroke_paint = Paint::default();
+                    stroke_paint.set_color(step_color);
+                    stroke_paint.anti_alias = true;
+
+                    for i in 0..steps {
+                        let cur_sw = sw - (i as f32);
+                        if cur_sw <= 0.0 { continue; }
                         
-                        let step_color = tiny_skia::Color::from_rgba(
-                            shadow_c.red() as f32 / 255.0,
-                            shadow_c.green() as f32 / 255.0,
-                            shadow_c.blue() as f32 / 255.0,
-                            a_step,
-                        ).unwrap_or_else(|| tiny_skia::Color::BLACK);
-
-                        let mut stroke_paint = Paint::default();
-                        stroke_paint.set_color(step_color);
-                        stroke_paint.anti_alias = true;
-
-                        for i in 0..steps {
-                            let cur_sw = sw - (i as f32);
-                            if cur_sw <= 0.0 { continue; }
-                            
-                            if let Some(shadow_rect) = Rect::from_xywh(
-                                inner_rect.x() - cur_sw / 2.0,
-                                inner_rect.y() - cur_sw / 2.0,
-                                inner_rect.width() + cur_sw,
-                                inner_rect.height() + cur_sw,
-                            ) {
-                                let mut pb = PathBuilder::new();
-                                push_rounded_rect(&mut pb, shadow_rect, radius + (cur_sw / 2.0));
-                                if let Some(path) = pb.finish() {
-                                    let mut stroke = Stroke::default();
-                                    stroke.width = cur_sw;
-                                    pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
-                                }
+                        if let Some(shadow_rect) = Rect::from_xywh(
+                            inner_rect.x() - cur_sw / 2.0,
+                            inner_rect.y() - cur_sw / 2.0,
+                            inner_rect.width() + cur_sw,
+                            inner_rect.height() + cur_sw,
+                        ) {
+                            let mut pb = PathBuilder::new();
+                            push_rounded_rect(&mut pb, shadow_rect, radius + (cur_sw / 2.0));
+                            if let Some(path) = pb.finish() {
+                                let mut stroke = Stroke::default();
+                                stroke.width = cur_sw;
+                                pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
                             }
                         }
                     }
@@ -164,4 +159,42 @@ fn parse_hex_color(hex: &str, alpha: f32) -> Color {
     let hex_a = u8::from_str_radix(a_str, 16).unwrap_or(255);
     
     Color::from_rgba8(r, g, b, (alpha * (hex_a as f32)) as u8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_draw_frame_basic() {
+        let mut config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(10),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            radius: Some(5),
+            opacity: Some(1.0),
+            color: Some("#FF0000".to_string()),
+            preset: None,
+            shadow_width: Some(5.0),
+            shadow_color: Some("#000000AA".to_string()),
+            highlight_width: Some(2.0),
+            highlight_color: Some("#FFFFFF22".to_string()),
+            layer: None,
+        };
+
+        let width = 100;
+        let height = 100;
+        let pixels = draw_frame(width, height, &config);
+        
+        assert_eq!(pixels.len(), (width * height * 4) as usize);
+        
+        // Test with 0 shadow/highlight
+        config.shadow_width = Some(0.0);
+        config.highlight_width = Some(0.0);
+        let pixels_no_effects = draw_frame(width, height, &config);
+        assert_eq!(pixels_no_effects.len(), (width * height * 4) as usize);
+    }
 }

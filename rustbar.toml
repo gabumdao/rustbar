@@ -4,6 +4,12 @@ radius = 24
 opacity = 0.8
 color = "#ff5555" # red frame for testing
 
+# Shadow and Highlight
+shadow_width = 16.0
+shadow_color = "#000000CC"
+highlight_width = 4.0
+highlight_color = "#FFFFFF33"
+
 # To override a specific monitor, use its name (e.g., "DP-1" or "HDMI-A-1"):
 # [monitors."DP-1"]
 # color = "#0000ff"

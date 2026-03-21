@@ -2,13 +2,7 @@ pub mod config;
 pub mod wayland;
 pub mod render;
 
-use smithay_client_toolkit::registry::RegistryState;
-use smithay_client_toolkit::output::OutputState;
-use smithay_client_toolkit::shell::wlr_layer::LayerShell;
 use wayland_client::Connection;
-use calloop::{EventLoop, LoopSignal};
-use calloop_wayland_source::WaylandSource;
-use smithay_client_toolkit::compositor::CompositorState;
 
 pub enum AppEvent {
     ReloadConfig,
