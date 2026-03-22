@@ -338,6 +338,38 @@ my_color = "#00FF00"
         assert_eq!(config.shadow_color, "#FF0000AA");
 
         // Clean up
+    }
+
+    #[test]
+    fn test_variable_expansion_colors_toml() {
+        let dir = temp_dir();
+        let main_path = dir.join("main_issue.toml");
+        let inc_path = dir.join("colors.toml");
+
+        let colors_str = r##"
+[variables]
+background = "#191510"
+foreground = "#ede6d8"
+color1  = "#C0A57E"
+"##;
+        
+        let main_str = r##"
+include = ["colors.toml"]
+
+color = "$color1"
+opacity = 0.5
+"##;
+
+        let mut inc_file = fs::File::create(&inc_path).unwrap();
+        write!(inc_file, "{}", colors_str).unwrap();
+
+        let mut main_file = fs::File::create(&main_path).unwrap();
+        write!(main_file, "{}", main_str).unwrap();
+
+        let config = Config::load(&main_path);
+
+        assert_eq!(config.color, "#C0A57E");
+
         let _ = fs::remove_file(main_path);
         let _ = fs::remove_file(inc_path);
     }
