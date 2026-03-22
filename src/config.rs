@@ -32,6 +32,9 @@ pub struct Config {
     pub highlight_color: String,
 
     #[serde(default)]
+    pub inner_shadow: InnerShadowConfig,
+
+    #[serde(default)]
     pub layer: LayerConfig,
 
     #[serde(default)]
@@ -39,6 +42,42 @@ pub struct Config {
 
     #[serde(skip)]
     pub loaded_files: Vec<std::path::PathBuf>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct InnerShadowConfig {
+    #[serde(default = "default_inner_shadow_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_inner_shadow_size")]
+    pub size: f32,
+    #[serde(default = "default_inner_shadow_opacity")]
+    pub opacity: f32,
+    #[serde(default = "default_inner_shadow_color")]
+    pub color: String,
+    #[serde(default = "default_inner_shadow_softness")]
+    pub softness: f32,
+    #[serde(default = "default_inner_shadow_falloff")]
+    pub falloff: String,
+}
+
+fn default_inner_shadow_enabled() -> bool { false }
+fn default_inner_shadow_size() -> f32 { 10.0 }
+fn default_inner_shadow_opacity() -> f32 { 0.5 }
+fn default_inner_shadow_color() -> String { "#000000".to_string() }
+fn default_inner_shadow_softness() -> f32 { 1.0 }
+fn default_inner_shadow_falloff() -> String { "ease_out".to_string() }
+
+impl Default for InnerShadowConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_inner_shadow_enabled(),
+            size: default_inner_shadow_size(),
+            opacity: default_inner_shadow_opacity(),
+            color: default_inner_shadow_color(),
+            softness: default_inner_shadow_softness(),
+            falloff: default_inner_shadow_falloff(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -89,7 +128,18 @@ pub struct MonitorConfig {
     pub shadow_color: Option<String>,
     pub highlight_width: Option<f32>,
     pub highlight_color: Option<String>,
+    pub inner_shadow: Option<MonitorInnerShadowConfig>,
     pub layer: Option<LayerConfig>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct MonitorInnerShadowConfig {
+    pub enabled: Option<bool>,
+    pub size: Option<f32>,
+    pub opacity: Option<f32>,
+    pub color: Option<String>,
+    pub softness: Option<f32>,
+    pub falloff: Option<String>,
 }
 
 fn default_thickness() -> u32 { 16 }
@@ -117,6 +167,7 @@ impl Default for Config {
             shadow_color: default_shadow_color(),
             highlight_width: default_highlight_width(),
             highlight_color: default_highlight_color(),
+            inner_shadow: InnerShadowConfig::default(),
             layer: LayerConfig::default(),
             monitors: HashMap::new(),
             loaded_files: Vec::new(),
@@ -188,6 +239,14 @@ impl Config {
             shadow_color: Some(self.shadow_color.clone()),
             highlight_width: Some(self.highlight_width),
             highlight_color: Some(self.highlight_color.clone()),
+            inner_shadow: Some(MonitorInnerShadowConfig {
+                enabled: Some(self.inner_shadow.enabled),
+                size: Some(self.inner_shadow.size),
+                opacity: Some(self.inner_shadow.opacity),
+                color: Some(self.inner_shadow.color.clone()),
+                softness: Some(self.inner_shadow.softness),
+                falloff: Some(self.inner_shadow.falloff.clone()),
+            }),
             layer: Some(self.layer.clone()),
         };
 
@@ -207,6 +266,14 @@ impl Config {
                 shadow_color: spec.shadow_color.clone().or(global.shadow_color),
                 highlight_width: spec.highlight_width.or(global.highlight_width),
                 highlight_color: spec.highlight_color.clone().or(global.highlight_color),
+                inner_shadow: Some(MonitorInnerShadowConfig {
+                    enabled: spec.inner_shadow.as_ref().and_then(|s| s.enabled).or(Some(self.inner_shadow.enabled)),
+                    size: spec.inner_shadow.as_ref().and_then(|s| s.size).or(Some(self.inner_shadow.size)),
+                    opacity: spec.inner_shadow.as_ref().and_then(|s| s.opacity).or(Some(self.inner_shadow.opacity)),
+                    color: spec.inner_shadow.as_ref().and_then(|s| s.color.clone()).or(Some(self.inner_shadow.color.clone())),
+                    softness: spec.inner_shadow.as_ref().and_then(|s| s.softness).or(Some(self.inner_shadow.softness)),
+                    falloff: spec.inner_shadow.as_ref().and_then(|s| s.falloff.clone()).or(Some(self.inner_shadow.falloff.clone())),
+                }),
                 layer: match (&self.layer, &spec.layer) {
                     (g, Some(s)) => {
                         let mut merged = g.clone();

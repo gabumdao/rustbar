@@ -103,8 +103,8 @@ impl LayerShellHandler for State {
         let id_surf = layer.wl_surface().id().protocol_id();
         self.dimensions.insert(id_surf, (width, height));
         
-        // Find monitor name from output to apply config? Defaulting to "default" for now
-        let m_config = self.config.for_monitor("default");
+        let monitor_name = self.output_names.get(&id_surf).cloned().unwrap_or_else(|| "default".to_string());
+        let m_config = self.config.for_monitor(&monitor_name);
         let pixels = crate::render::draw_frame(width, height, &m_config);
         let id_surf = layer.wl_surface().id().protocol_id();
         

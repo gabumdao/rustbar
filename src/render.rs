@@ -1,4 +1,4 @@
-use tiny_skia::{Pixmap, Color, Paint, Rect, PathBuilder, BlendMode, Transform, Stroke};
+use tiny_skia::{Pixmap, Color, Paint, Rect, PathBuilder, BlendMode, Transform, Stroke, FillRule, Path};
 use crate::config::MonitorConfig;
 
 fn push_rounded_rect(pb: &mut PathBuilder, rect: Rect, radius: f32) {
@@ -29,6 +29,99 @@ fn push_rounded_rect(pb: &mut PathBuilder, rect: Rect, radius: f32) {
     pb.line_to(x, y + radius);
     pb.cubic_to(x, y + radius - kr, x + radius - kr, y, x + radius, y);
     pb.close();
+}
+
+fn get_inner_path(rect: Rect, radius: f32) -> Option<Path> {
+    let mut pb = PathBuilder::new();
+    push_rounded_rect(&mut pb, rect, radius);
+    pb.finish()
+}
+
+use crate::config::MonitorInnerShadowConfig;
+
+fn draw_inner_shadow(pixmap: &mut Pixmap, inner_rect: Rect, radius: f32, config: &MonitorInnerShadowConfig) {
+    if !config.enabled.unwrap_or(false) { return; }
+    let size = config.size.unwrap_or(0.0);
+    if size <= 0.0 { return; }
+    
+    let path = match get_inner_path(inner_rect, radius) {
+        Some(p) => p,
+        None => return,
+    };
+
+    let color_hex = config.color.as_deref().unwrap_or("#000000");
+    let base_color = parse_hex_color(color_hex, 1.0);
+    // Number of steps for smoothness
+    let steps = (size.ceil() * 2.0).clamp(16.0, 128.0) as usize;
+    let base_opacity = config.opacity.unwrap_or(0.5);
+    let softness = config.softness.unwrap_or(1.0).clamp(0.01, 2.0);
+    let falloff_style = config.falloff.as_deref().unwrap_or("ease_out");
+
+    // Create a temporary pixmap to draw the shadow, then composite using the inner path as mask
+    let mut shadow_pixmap = match Pixmap::new(pixmap.width(), pixmap.height()) {
+        Some(p) => p,
+        None => return,
+    };
+
+    let mut paint = Paint::default();
+    paint.anti_alias = true;
+
+    for i in 0..steps {
+        let t = (i as f32 + 0.5) / steps as f32; // 0 to 1
+        
+        // Width of this stroke step
+        let w = size * t;
+        
+        // Opacity based on falloff/softness
+        // We'll use a simple ease-out-like curve if requested
+        let factor = match falloff_style {
+            "ease_out" => (1.0 - t).powf(1.0 / softness),
+            "ease_in" => 1.0 - t.powf(1.0 / softness),
+            "linear" => 1.0 - t,
+            _ => (1.0 - t).powf(1.0 / softness), // default to ease_out
+        };
+        
+        // Since we are stacking strokes, we need to calculate the incremental alpha
+        // But it's easier to think of each stroke as covering [0, w]
+        // If we draw from t=1 down to 0, each stroke is wider.
+        // Actually, let's use the property that a stroke of width 2*w centered on path
+        // covers [0, w] inside and [0, w] outside.
+        // We only care about the inside because we'll clip later.
+        
+        // To get a smooth gradient by stacking:
+        // Alpha of this step's contribution.
+        // If we want total alpha A(t) = base_opacity * factor(t)
+        // And we're stacking N steps, then each step i adds some alpha.
+        // Actually, more robust: draw each step i with alpha that makes it reach target.
+        // Or just draw N strokes with small alpha and sum them up.
+        
+        let step_alpha = (base_opacity * factor) / (steps as f32 / 4.0);
+        let step_color = Color::from_rgba(
+            base_color.red(),
+            base_color.green(),
+            base_color.blue(),
+            step_alpha.clamp(0.0, 1.0)
+        ).unwrap_or(Color::BLACK);
+        
+        paint.set_color(step_color);
+        let mut stroke = Stroke::default();
+        stroke.width = w * 2.0;
+        shadow_pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+    }
+
+    // Now composite shadow_pixmap onto main pixmap, BUT ONLY inside the inner path
+    let mut mask_pixmap = match Pixmap::new(pixmap.width(), pixmap.height()) {
+        Some(p) => p,
+        None => return,
+    };
+    let mut mask_paint = Paint::default();
+    mask_paint.set_color(Color::WHITE);
+    mask_paint.anti_alias = true;
+    mask_pixmap.fill_path(&path, &mask_paint, FillRule::Winding, Transform::identity(), None);
+
+    // Use alpha-only mask to composite
+    let mask = tiny_skia::Mask::from_pixmap(mask_pixmap.as_ref(), tiny_skia::MaskType::Alpha);
+    pixmap.draw_pixmap(0, 0, shadow_pixmap.as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), Some(&mask));
 }
 
 pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
@@ -115,15 +208,17 @@ pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
                     }
                 }
             }
-
             // Finally, Erase the center completely transparent
-            let mut pb = PathBuilder::new();
-            push_rounded_rect(&mut pb, inner_rect, radius);
-            if let Some(path) = pb.finish() {
+            if let Some(path) = get_inner_path(inner_rect, radius) {
                 let mut clear_paint = Paint::default();
                 clear_paint.blend_mode = BlendMode::Clear;
                 clear_paint.anti_alias = true;
-                pixmap.fill_path(&path, &clear_paint, tiny_skia::FillRule::Winding, Transform::identity(), None);
+                pixmap.fill_path(&path, &clear_paint, FillRule::Winding, Transform::identity(), None);
+            }
+
+            // --- Inner Shadow ---
+            if let Some(ish_config) = &config.inner_shadow {
+                draw_inner_shadow(&mut pixmap, inner_rect, radius, ish_config);
             }
         }
     }
@@ -175,6 +270,7 @@ mod tests {
             shadow_color: Some("#000000AA".to_string()),
             highlight_width: Some(2.0),
             highlight_color: Some("#FFFFFF22".to_string()),
+            inner_shadow: None,
             layer: None,
         };
 
@@ -189,5 +285,19 @@ mod tests {
         config.highlight_width = Some(0.0);
         let pixels_no_effects = draw_frame(width, height, &config);
         assert_eq!(pixels_no_effects.len(), (width * height * 4) as usize);
+
+        // Test with inner shadow
+        let mut config_inner = config.clone();
+        config_inner.inner_shadow = Some(MonitorInnerShadowConfig {
+            enabled: Some(true),
+            size: Some(10.0),
+            opacity: Some(0.5),
+            color: Some("#000000".to_string()),
+            softness: Some(1.0),
+            falloff: Some("ease_out".to_string()),
+        });
+        let pixels_inner = draw_frame(width, height, &config_inner);
+        assert_eq!(pixels_inner.len(), (width * height * 4) as usize);
+        assert_ne!(pixels_no_effects, pixels_inner);
     }
 }

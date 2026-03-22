@@ -8,3 +8,11 @@ color = "#ff5555" # red frame for testing
 # [monitors."DP-1"]
 # color = "#0000ff"
 # thickness = 10
+
+[inner_shadow]
+enabled = true
+size = 20
+opacity = 0.3
+color = "#000000"
+softness = 1.0
+falloff = "ease_out"
