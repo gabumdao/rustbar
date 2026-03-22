@@ -42,6 +42,19 @@ The `[inner_shadow]` section controls the shadow that fades inward from the beze
 | `softness` | Float | `1.0` | Controls the falloff curve sharpness. |
 | `falloff` | String | `"ease_out"` | Falloff style: `"ease_out"`, `"ease_in"`, or `"linear"`. |
 
+## Texture Configuration
+
+The `[texture]` section allows you to apply a procedural surface pattern (noise, grain, etc.) to the bezel, giving it a more physical, material-like appearance.
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `enabled` | Boolean | `false` | Enable or disable the frame texture. |
+| `type` | String | `"fine_noise"` | Texture type: `"fine_noise"`, `"grain"`, `"directional"`, or `"mottled"`. |
+| `strength` | Float | `0.12` | Intensity of the texture variation (0.0 to 1.0). |
+| `scale` | Float | `1.0` | Global scale of the texture pattern. |
+| `contrast` | Float | `0.25` | Contrast of the procedural noise. |
+| `seed` | Integer | `42` | Random seed for procedural generation. |
+
 ## Layer Configuration
 
 The `[layer]` section controls how the bar interacts with the Wayland compositor.

@@ -37,7 +37,7 @@ fn get_inner_path(rect: Rect, radius: f32) -> Option<Path> {
     pb.finish()
 }
 
-use crate::config::MonitorInnerShadowConfig;
+use crate::config::{MonitorInnerShadowConfig, MonitorTextureConfig};
 
 fn draw_inner_shadow(pixmap: &mut Pixmap, inner_rect: Rect, radius: f32, config: &MonitorInnerShadowConfig) {
     if !config.enabled.unwrap_or(false) { return; }
@@ -124,6 +124,73 @@ fn draw_inner_shadow(pixmap: &mut Pixmap, inner_rect: Rect, radius: f32, config:
     pixmap.draw_pixmap(0, 0, shadow_pixmap.as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), Some(&mask));
 }
 
+fn apply_texture(pixmap: &mut Pixmap, config: &MonitorTextureConfig) {
+    if !config.enabled.unwrap_or(false) { return; }
+    let strength = config.strength.unwrap_or(0.12).clamp(0.0, 1.0);
+    if strength <= 0.0 { return; }
+    
+    let texture_type = config.texture_type.as_deref().unwrap_or("fine_noise");
+    let scale = config.scale.unwrap_or(1.0).max(0.01);
+    let contrast = config.contrast.unwrap_or(0.25);
+    let seed = config.seed.unwrap_or(42);
+
+    let width = pixmap.width();
+    let height = pixmap.height();
+    let pixels = pixmap.pixels_mut();
+
+    for y in 0..height {
+        for x in 0..width {
+            let idx = (y * width + x) as usize;
+            
+            // Map coordinates based on scale and type
+            let (tx, ty) = match texture_type {
+                "fine_noise" => (x as f32 / scale, y as f32 / scale),
+                "grain" => (x as f32 / (scale * 2.0), y as f32 / (scale * 2.0)),
+                "directional" => (x as f32 / (scale * 5.0), y as f32 / scale),
+                "mottled" => (x as f32 / (scale * 8.0), y as f32 / (scale * 8.0)),
+                _ => (x as f32 / scale, y as f32 / scale),
+            };
+
+            // Stable noise generation
+            let n = squirrel_noise(tx.floor() as i32, ty.floor() as i32, seed);
+            let mut val = (n as f32 / u32::MAX as f32) * 2.0 - 1.0; // -1.0 to 1.0
+            
+            // Apply contrast
+            if contrast != 1.0 {
+                val = val * contrast;
+            }
+
+            let p = &mut pixels[idx];
+            let r = p.red() as f32 / 255.0;
+            let g = p.green() as f32 / 255.0;
+            let b = p.blue() as f32 / 255.0;
+            let a = p.alpha() as f32 / 255.0;
+
+            // Simple additive/subtractive blending for material variation
+            // We modify the brightness. val is -1 to 1.
+            let factor = 1.0 + (val * strength);
+            
+            let new_r = (r * factor).clamp(0.0, 1.0);
+            let new_g = (g * factor).clamp(0.0, 1.0);
+            let new_b = (b * factor).clamp(0.0, 1.0);
+
+            if let Some(new_color) = Color::from_rgba(new_r, new_g, new_b, a) {
+                *p = new_color.premultiply().to_color_u8();
+            }
+        }
+    }
+}
+
+fn squirrel_noise(x: i32, y: i32, seed: u64) -> u32 {
+    let mut n = (seed as u32).wrapping_add(x as u32).wrapping_mul(0xdeadbeef);
+    n = n ^ (n >> 13);
+    n = n.wrapping_add(y as u32).wrapping_mul(0x85ebca6b);
+    n = n ^ (n >> 16);
+    n = n.wrapping_mul(0xc2b2ae35);
+    n = n ^ (n >> 13);
+    n
+}
+
 pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
     let mut pixmap = Pixmap::new(width, height).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
     
@@ -137,6 +204,11 @@ pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
     // 1. Fill entire background
     if let Some(full_rect) = Rect::from_xywh(0.0, 0.0, width as f32, height as f32) {
         pixmap.fill_rect(full_rect, &paint, Transform::identity(), None);
+    }
+
+    // 2. Apply texture before other effects
+    if let Some(texture_config) = &config.texture {
+        apply_texture(&mut pixmap, texture_config);
     }
 
     let t_base = config.thickness.unwrap_or(16) as f32;
@@ -271,6 +343,7 @@ mod tests {
             highlight_width: Some(2.0),
             highlight_color: Some("#FFFFFF22".to_string()),
             inner_shadow: None,
+            texture: None,
             layer: None,
         };
 
@@ -299,5 +372,45 @@ mod tests {
         let pixels_inner = draw_frame(width, height, &config_inner);
         assert_eq!(pixels_inner.len(), (width * height * 4) as usize);
         assert_ne!(pixels_no_effects, pixels_inner);
+    }
+
+    #[test]
+    fn test_draw_frame_texture() {
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(10),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            radius: Some(5),
+            opacity: Some(1.0),
+            color: Some("#FF0000".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: None,
+            highlight_width: Some(0.0),
+            highlight_color: None,
+            inner_shadow: None,
+            texture: Some(MonitorTextureConfig {
+                enabled: Some(true),
+                texture_type: Some("fine_noise".to_string()),
+                strength: Some(1.0), // Max strength for obvious difference
+                scale: Some(1.0),
+                contrast: Some(1.0),
+                seed: Some(42),
+            }),
+            layer: None,
+        };
+
+        let width = 50;
+        let height = 50;
+        let pixels_textured = draw_frame(width, height, &config);
+        
+        let mut config_no_texture = config.clone();
+        config_no_texture.texture = None;
+        let pixels_plain = draw_frame(width, height, &config_no_texture);
+        
+        assert_ne!(pixels_textured, pixels_plain);
     }
 }
