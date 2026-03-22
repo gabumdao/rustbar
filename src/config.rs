@@ -35,13 +35,10 @@ pub struct Config {
     pub inner_shadow: InnerShadowConfig,
 
     #[serde(default)]
-    pub texture: TextureConfig,
-
-    #[serde(default)]
     pub layer: LayerConfig,
 
     #[serde(default)]
-    pub monitors: std::collections::HashMap<String, MonitorConfig>,
+    pub monitors: HashMap<String, MonitorConfig>,
 
     #[serde(skip)]
     pub loaded_files: Vec<std::path::PathBuf>,
@@ -79,42 +76,6 @@ impl Default for InnerShadowConfig {
             color: default_inner_shadow_color(),
             softness: default_inner_shadow_softness(),
             falloff: default_inner_shadow_falloff(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-pub struct TextureConfig {
-    #[serde(default = "default_texture_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_texture_type")]
-    pub texture_type: String,
-    #[serde(default = "default_texture_strength")]
-    pub strength: f32,
-    #[serde(default = "default_texture_scale")]
-    pub scale: f32,
-    #[serde(default = "default_texture_contrast")]
-    pub contrast: f32,
-    #[serde(default = "default_texture_seed")]
-    pub seed: u64,
-}
-
-fn default_texture_enabled() -> bool { false }
-fn default_texture_type() -> String { "fine_noise".to_string() }
-fn default_texture_strength() -> f32 { 0.12 }
-fn default_texture_scale() -> f32 { 1.0 }
-fn default_texture_contrast() -> f32 { 0.25 }
-fn default_texture_seed() -> u64 { 42 }
-
-impl Default for TextureConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_texture_enabled(),
-            texture_type: default_texture_type(),
-            strength: default_texture_strength(),
-            scale: default_texture_scale(),
-            contrast: default_texture_contrast(),
-            seed: default_texture_seed(),
         }
     }
 }
@@ -168,18 +129,7 @@ pub struct MonitorConfig {
     pub highlight_width: Option<f32>,
     pub highlight_color: Option<String>,
     pub inner_shadow: Option<MonitorInnerShadowConfig>,
-    pub texture: Option<MonitorTextureConfig>,
     pub layer: Option<LayerConfig>,
-}
-
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-pub struct MonitorTextureConfig {
-    pub enabled: Option<bool>,
-    pub texture_type: Option<String>,
-    pub strength: Option<f32>,
-    pub scale: Option<f32>,
-    pub contrast: Option<f32>,
-    pub seed: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -218,9 +168,8 @@ impl Default for Config {
             highlight_width: default_highlight_width(),
             highlight_color: default_highlight_color(),
             inner_shadow: InnerShadowConfig::default(),
-            texture: TextureConfig::default(),
             layer: LayerConfig::default(),
-            monitors: std::collections::HashMap::new(),
+            monitors: HashMap::new(),
             loaded_files: Vec::new(),
         }
     }
@@ -298,14 +247,6 @@ impl Config {
                 softness: Some(self.inner_shadow.softness),
                 falloff: Some(self.inner_shadow.falloff.clone()),
             }),
-            texture: Some(MonitorTextureConfig {
-                enabled: Some(self.texture.enabled),
-                texture_type: Some(self.texture.texture_type.clone()),
-                strength: Some(self.texture.strength),
-                scale: Some(self.texture.scale),
-                contrast: Some(self.texture.contrast),
-                seed: Some(self.texture.seed),
-            }),
             layer: Some(self.layer.clone()),
         };
 
@@ -332,14 +273,6 @@ impl Config {
                     color: spec.inner_shadow.as_ref().and_then(|s| s.color.clone()).or(Some(self.inner_shadow.color.clone())),
                     softness: spec.inner_shadow.as_ref().and_then(|s| s.softness).or(Some(self.inner_shadow.softness)),
                     falloff: spec.inner_shadow.as_ref().and_then(|s| s.falloff.clone()).or(Some(self.inner_shadow.falloff.clone())),
-                }),
-                texture: Some(MonitorTextureConfig {
-                    enabled: spec.texture.as_ref().and_then(|s| s.enabled).or(Some(self.texture.enabled)),
-                    texture_type: spec.texture.as_ref().and_then(|s| s.texture_type.clone()).or(Some(self.texture.texture_type.clone())),
-                    strength: spec.texture.as_ref().and_then(|s| s.strength).or(Some(self.texture.strength)),
-                    scale: spec.texture.as_ref().and_then(|s| s.scale).or(Some(self.texture.scale)),
-                    contrast: spec.texture.as_ref().and_then(|s| s.contrast).or(Some(self.texture.contrast)),
-                    seed: spec.texture.as_ref().and_then(|s| s.seed).or(Some(self.texture.seed)),
                 }),
                 layer: match (&self.layer, &spec.layer) {
                     (g, Some(s)) => {

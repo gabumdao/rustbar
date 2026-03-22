@@ -9,7 +9,6 @@
 - **Extreme Customizability**: Adjust the color, opacity, thickness (independently configurable for top, bottom, left, and right sides), and border radius.
 - **CRT-Inspired Visual Depth**: Includes robust built-in rendering for inner shadows, highlights, and bezel ridges to give deep visual depth to your display edge.
 - **Configurable Inner Shadow**: A dedicated `[inner_shadow]` section allows for a soft, adjustable shadow that follows the inner contour of the bezel.
-- **Procedural Bezel Textures**: Apply subtle fine-grain, brushed metal, or vintage CRT-style textures to the frame using the `[texture]` configuration.
 - **Per-Monitor Configurations**: Override default behaviors for individual monitors using their Wayland output names (e.g., `DP-1`, `HDMI-A-1`).
 - **Live Reloading**: Automatically reloads configuration on-the-fly when it detects changes to the `rustbar.toml` file.
 - **Hyprland IPC Integration**: Features a built-in event listener connecting directly to Hyprland's socket to intelligently and automatically hide the frame whenever a fullscreen application (such as games or video players) is focused.
@@ -62,12 +61,6 @@ falloff = "ease_out"
 color = "#0000ff" # Blue frame specifically for DP-1
 thickness_top = 10
 thickness_bottom = 20
-
-[texture]
-enabled = true
-type = "grain"
-strength = 0.15
-scale = 1.2
 ```
 
 *Note: Colors can optionally include an alpha channel (e.g. `#000000CC`).*
