@@ -138,6 +138,11 @@ fn draw_pattern(
     };
 
     let svg_path = PatternConfig::resolve_svg_path(source);
+    if !svg_path.exists() {
+        warn!("SVG pattern source not found: {}. Make sure it is in ~/.config/rustbar/svg or provide an absolute path.", svg_path.display());
+        return;
+    }
+
     let svg_data = match std::fs::read(&svg_path) {
         Ok(d) => d,
         Err(e) => {
@@ -170,6 +175,11 @@ fn draw_pattern(
     let base_scale = transform_config.scale;
     let motif_w = motif_size.width() * base_scale;
     let motif_h = motif_size.height() * base_scale;
+
+    if motif_w <= 0.0 || motif_h <= 0.0 {
+        warn!("SVG motif has zero size after scaling: {}x{}", motif_w, motif_h);
+        return;
+    }
 
     // We'll render the SVG once into a pixmap and reuse it
     let mut motif_pixmap = match Pixmap::new(motif_w.ceil() as u32, motif_h.ceil() as u32) {
@@ -424,38 +434,34 @@ pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
                 draw_inner_shadow(&mut pixmap, inner_rect, radius, ish_config);
             }
 
-            // --- SVG Pattern ---
+                // --- SVG Pattern ---
             if let Some(p_config) = &config.pattern {
                 // We use a mask to ensure it only draws on the bezel
-                let mut pattern_pixmap = match Pixmap::new(width, height) {
-                    Some(p) => p,
-                    None => return vec![],
-                };
+                if let Some(mut pattern_pixmap) = Pixmap::new(width, height) {
+                    draw_pattern(&mut pattern_pixmap, inner_rect, radius, p_config);
 
-                draw_pattern(&mut pattern_pixmap, inner_rect, radius, p_config);
+                    if let Some(mut mask_pixmap) = Pixmap::new(width, height) {
+                        // Create bezel mask: (Full - InnerCutout)
+                        let mut pb = PathBuilder::new();
+                        if let Some(full_rect) = Rect::from_xywh(0.0, 0.0, width as f32, height as f32) {
+                            push_rounded_rect(&mut pb, full_rect, 0.0);
+                            if let Some(full_path) = pb.finish() {
+                                let mut paint = Paint::default();
+                                paint.set_color(Color::WHITE);
+                                mask_pixmap.fill_path(&full_path, &paint, FillRule::Winding, Transform::identity(), None);
+                            }
+                        }
 
-                let mut mask_pixmap = match Pixmap::new(width, height) {
-                    Some(p) => p,
-                    None => return vec![],
-                };
-                
-                // Create bezel mask: (Full - InnerCutout)
-                let mut pb = PathBuilder::new();
-                push_rounded_rect(&mut pb, Rect::from_xywh(0.0, 0.0, width as f32, height as f32).unwrap(), 0.0);
-                if let Some(full_path) = pb.finish() {
-                    let mut paint = Paint::default();
-                    paint.set_color(Color::WHITE);
-                    mask_pixmap.fill_path(&full_path, &paint, FillRule::Winding, Transform::identity(), None);
+                        if let Some(inner_path) = get_inner_path(inner_rect, radius) {
+                            let mut clear_paint = Paint::default();
+                            clear_paint.blend_mode = BlendMode::Clear;
+                            mask_pixmap.fill_path(&inner_path, &clear_paint, FillRule::Winding, Transform::identity(), None);
+                        }
+
+                        let mask = tiny_skia::Mask::from_pixmap(mask_pixmap.as_ref(), tiny_skia::MaskType::Alpha);
+                        pixmap.draw_pixmap(0, 0, pattern_pixmap.as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), Some(&mask));
+                    }
                 }
-
-                if let Some(inner_path) = get_inner_path(inner_rect, radius) {
-                    let mut clear_paint = Paint::default();
-                    clear_paint.blend_mode = BlendMode::Clear;
-                    mask_pixmap.fill_path(&inner_path, &clear_paint, FillRule::Winding, Transform::identity(), None);
-                }
-
-                let mask = tiny_skia::Mask::from_pixmap(mask_pixmap.as_ref(), tiny_skia::MaskType::Alpha);
-                pixmap.draw_pixmap(0, 0, pattern_pixmap.as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), Some(&mask));
             }
         }
     }

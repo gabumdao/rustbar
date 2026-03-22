@@ -16,3 +16,24 @@ opacity = 0.3
 color = "#000000"
 softness = 1.0
 falloff = "ease_out"
+
+[pattern]
+enabled = true
+source = "cross-svgrepo-com.svg"
+opacity = 0.4
+color = "#f7768e" 
+seed = 42
+
+[pattern.transform]
+scale = 0.8
+rotation = 45.0
+
+[pattern.repeat]
+spacing = 40
+offset = 10
+jitter_rotation = 15.0
+jitter_scale = 0.1
+
+[pattern.corners]
+avoid_corners = true
+corner_padding = 20
