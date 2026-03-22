@@ -53,66 +53,66 @@ The `[layer]` section controls how the bar interacts with the Wayland compositor
 | `keyboard_interactivity`| String | `"none"` | Level of keyboard focus: `"none"`, `"on_demand"`, or `"exclusive"`. |
 | `click_through` | Boolean | `true` | If true, clicks pass through the bar to windows underneath. |
 | `namespace` | String | `"rustbar-frame"`| Namespace for the Wayland layer-shell surface. |
-56: 
-57: ## SVG Pattern Layer
-58: 
-59: The `[pattern]` section allows you to place repeating SVG motifs along the frame bezel.
-60: 
-61: ### General
-62: 
-63: | Option | Type | Default | Description |
-64: | :--- | :--- | :--- | :--- |
-65: | `enabled` | Boolean | `false` | Enable or disable the pattern layer. |
-66: | `source` | String | (None) | Filename of the SVG motif (e.g., `"star.svg"`). Resolved relative to `~/.config/rustbar/svg`. |
-67: | `opacity` | Float | `1.0` | Opacity of the pattern (0.0 to 1.0). |
-68: | `color` | String | (None) | Tint color for the SVG (hex). Replaces all SVG colors. |
-69: | `blend` | String | `"normal"` | Blend mode: `"normal"`, `"multiply"`, `"screen"`, `"overlay"`, `"darken"`, `"lighten"`. |
-70: | `seed` | Integer | `0` | Random seed for deterministic jitter variation. |
-71: 
-72: ### Transform
-73: 
-74: Sub-section: `[pattern.transform]`
-75: 
-76: | Option | Type | Default | Description |
-77: | :--- | :--- | :--- | :--- |
-78: | `scale` | Float | `1.0` | Global scale of the SVG motif. |
-79: | `rotation` | Float | `0.0` | Base rotation of the motif (in degrees). |
-80: | `flip_x` | Boolean | `false` | Flip the motif horizontally. |
-81: | `flip_y` | Boolean | `false` | Flip the motif vertically. |
-82: 
-83: ### Repeat Layout
-84: 
-85: Sub-section: `[pattern.repeat]`
-86: 
-87: | Option | Type | Default | Description |
-88: | :--- | :--- | :--- | :--- |
-89: | `spacing` | Float | `24.0` | Distance between repeated instances (in pixels). |
-90: | `offset` | Float | `0.0` | Starting offset along each edge. |
-91: | `jitter_spacing` | Float | `0.0` | Random variation in spacing. |
-92: | `jitter_rotation`| Float | `0.0` | Random variation in rotation (in degrees). |
-93: | `jitter_scale` | Float | `0.0` | Random variation in scale. |
-94: 
-95: ### Side Controls
-96: 
-97: Sub-section: `[pattern.sides]`
-98: 
-99: | Option | Type | Default | Description |
-100: | :--- | :--- | :--- | :--- |
-101: | `top` | Boolean | `true` | Enable pattern on the top edge. |
-102: | `bottom` | Boolean | `true` | Enable pattern on the bottom edge. |
-103: | `left` | Boolean | `true` | Enable pattern on the left edge. |
-104: | `right` | Boolean | `true` | Enable pattern on the right edge. |
-105: 
-106: ### Corner Handling
-107: 
-108: Sub-section: `[pattern.corners]`
-109: 
-110: | Option | Type | Default | Description |
-111: | :--- | :--- | :--- | :--- |
-112: | `avoid_corners` | Boolean | `false` | If true, pattern stops before reaching corner areas. |
-113: | `corner_padding`| Float | `12.0` | Padding distance from corners when `avoid_corners` is true. |
-114: 
-115: ## Monitor-Specific Overrides
+
+## SVG Pattern Layer
+
+The `[pattern]` section allows you to place repeating SVG motifs along the frame bezel.
+
+### General
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `enabled` | Boolean | `false` | Enable or disable the pattern layer. |
+| `source` | String | (None) | Filename of the SVG motif (e.g., `"star.svg"`). Resolved relative to `~/.config/rustbar/svg`. |
+| `opacity` | Float | `1.0` | Opacity of the pattern (0.0 to 1.0). |
+| `color` | String | (None) | Tint color for the SVG (hex). Replaces all SVG colors. |
+| `blend` | String | `"normal"` | Blend mode: `"normal"`, `"multiply"`, `"screen"`, `"overlay"`, `"darken"`, `"lighten"`. |
+| `seed` | Integer | `0` | Random seed for deterministic jitter variation. |
+
+### Transform
+
+Sub-section: `[pattern.transform]`
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `scale` | Float | `1.0` | Global scale of the SVG motif. |
+| `rotation` | Float | `0.0` | Base rotation of the motif (in degrees). |
+| `flip_x` | Boolean | `false` | Flip the motif horizontally. |
+| `flip_y` | Boolean | `false` | Flip the motif vertically. |
+
+### Repeat Layout
+
+Sub-section: `[pattern.repeat]`
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `spacing` | Float | `24.0` | Distance between repeated instances (in pixels). |
+| `offset` | Float | `0.0` | Starting offset along each edge. |
+| `jitter_spacing` | Float | `0.0` | Random variation in spacing. |
+| `jitter_rotation`| Float | `0.0` | Random variation in rotation (in degrees). |
+| `jitter_scale` | Float | `0.0` | Random variation in scale. |
+
+### Side Controls
+
+Sub-section: `[pattern.sides]`
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `top` | Boolean | `true` | Enable pattern on the top edge. |
+| `bottom` | Boolean | `true` | Enable pattern on the bottom edge. |
+| `left` | Boolean | `true` | Enable pattern on the left edge. |
+| `right` | Boolean | `true` | Enable pattern on the right edge. |
+
+### Corner Handling
+
+Sub-section: `[pattern.corners]`
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `avoid_corners` | Boolean | `false` | If true, pattern stops before reaching corner areas. |
+| `corner_padding`| Float | `12.0` | Padding distance from corners when `avoid_corners` is true. |
+
+## Monitor-Specific Overrides
 
 You can override any setting for a specific monitor using its name (find it via `hyprctl monitors`).
 
