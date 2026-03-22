@@ -27,7 +27,7 @@ fn main() {
         output_state: smithay_client_toolkit::output::OutputState::new(&globals, &qh),
         shm: None,
         layer_shell: None,
-        config: config::Config::load(std::path::Path::new("rustbar.toml")),
+        config: config::Config::load_default(),
         loop_signal,
         active_surfaces: Vec::new(),
         dimensions: std::collections::HashMap::new(),
@@ -93,7 +93,7 @@ fn main() {
                 AppEvent::ReloadConfig => {
                     std::thread::sleep(std::time::Duration::from_millis(50));
                     let old_files = state.config.loaded_files.clone();
-                    state.config = config::Config::load(std::path::Path::new("rustbar.toml"));
+                    state.config = config::Config::load_default();
                     
                     // Update watcher
                     if let Some(watcher) = &mut state.watcher {

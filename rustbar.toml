@@ -1,0 +1,10 @@
+# Global settings
+thickness = 16
+radius = 24
+opacity = 0.8
+color = "#ff5555" # red frame for testing
+
+# To override a specific monitor, use its name (e.g., "DP-1" or "HDMI-A-1"):
+# [monitors."DP-1"]
+# color = "#0000ff"
+# thickness = 10

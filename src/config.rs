@@ -125,6 +125,31 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn load_default() -> Self {
+        Self::load(&Self::resolve_path())
+    }
+
+    pub fn resolve_path() -> std::path::PathBuf {
+        let local = std::path::Path::new("rustbar.toml");
+        if local.exists() {
+            return local.to_path_buf();
+        }
+        if let Ok(xdg_config_home) = std::env::var("XDG_CONFIG_HOME") {
+            let xdg_path = std::path::Path::new(&xdg_config_home).join("rustbar").join("rustbar.toml");
+            if xdg_path.exists() {
+                return xdg_path;
+            }
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            let home_path = std::path::Path::new(&home).join(".config").join("rustbar").join("rustbar.toml");
+            if home_path.exists() {
+                return home_path;
+            }
+        }
+        // Fallback to local
+        std::path::PathBuf::from("rustbar.toml")
+    }
+
     pub fn load(path: &Path) -> Self {
         let mut loaded_files = Vec::new();
         let config_value = match load_value_with_includes(path, &mut Vec::new(), &mut loaded_files) {
@@ -146,7 +171,6 @@ impl Config {
             }
         }
     }
-
 
     pub fn for_monitor(&self, name: &str) -> MonitorConfig {
         let global = MonitorConfig {
