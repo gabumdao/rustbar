@@ -29,6 +29,19 @@ These settings control the decorative effects on the bar bezel.
 | `highlight_width` | Float | `3.0` | Width of the outer bezel highlight. |
 | `highlight_color` | String | `"#FFFFFF22"` | Color and opacity of the highlight. |
 
+## Inner Shadow
+
+The `[inner_shadow]` section controls the shadow that fades inward from the bezel's inner edge, creating a sense of physical depth.
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `enabled` | Boolean | `false` | Enable or disable the inner shadow. |
+| `size` | Float | `10.0` | Inward distance of the shadow (in pixels). |
+| `opacity` | Float | `0.5` | Max opacity of the shadow at the edge. |
+| `color` | String | `"#000000"` | Hex color of the shadow. |
+| `softness` | Float | `1.0` | Controls the falloff curve sharpness. |
+| `falloff` | String | `"ease_out"` | Falloff style: `"ease_out"`, `"ease_in"`, or `"linear"`. |
+
 ## Layer Configuration
 
 The `[layer]` section controls how the bar interacts with the Wayland compositor.
@@ -55,6 +68,7 @@ shadow_width = 20.0
 [monitors."HDMI-A-1"]
 thickness_top = 32
 thickness_bottom = 0    # No bar at the bottom
+inner_shadow.size = 30  # Override only size for this monitor
 ```
 
 ## Complete Example
@@ -74,4 +88,11 @@ highlight_color = "#f5c2e733"
 level = "top"
 exclusive_zone = 0
 click_through = true
+
+[inner_shadow]
+enabled = true
+size = 20
+opacity = 0.3
+softness = 1.0
+falloff = "ease_out"
 ```

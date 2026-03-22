@@ -8,6 +8,7 @@
 - **Unobtrusive Z-Order Management**: Renders behind your panels (like Waybar) by default using the `bottom` layer.
 - **Extreme Customizability**: Adjust the color, opacity, thickness (independently configurable for top, bottom, left, and right sides), and border radius.
 - **CRT-Inspired Visual Depth**: Includes robust built-in rendering for inner shadows, highlights, and bezel ridges to give deep visual depth to your display edge.
+- **Configurable Inner Shadow**: A dedicated `[inner_shadow]` section allows for a soft, adjustable shadow that follows the inner contour of the bezel.
 - **Per-Monitor Configurations**: Override default behaviors for individual monitors using their Wayland output names (e.g., `DP-1`, `HDMI-A-1`).
 - **Live Reloading**: Automatically reloads configuration on-the-fly when it detects changes to the `rustbar.toml` file.
 - **Hyprland IPC Integration**: Features a built-in event listener connecting directly to Hyprland's socket to intelligently and automatically hide the frame whenever a fullscreen application (such as games or video players) is focused.
@@ -45,8 +46,14 @@ color = "#ff5555" # Example: Red frame
 # --- Visual Effects (Shadows and Highlights) ---
 shadow_width = 16.0
 shadow_color = "#000000CC"
-highlight_width = 4.0
 highlight_color = "#FFFFFF33"
+
+[inner_shadow]
+enabled = true
+size = 20
+opacity = 0.3
+softness = 1.0
+falloff = "ease_out"
 
 # --- Per-Monitor Overrides ---
 # To override settings for a specific monitor, specify its Waysland output name:
