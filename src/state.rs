@@ -24,6 +24,7 @@ pub struct State {
     pub dimensions: HashMap<u32, (u32, u32)>,
     pub pools: HashMap<u32, (SlotPool, Option<Buffer>)>,
     pub output_names: HashMap<u32, String>,
+    pub watcher: Option<notify::RecommendedWatcher>,
 }
 
 impl State {

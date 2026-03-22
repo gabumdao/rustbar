@@ -33,7 +33,25 @@ fn main() {
         dimensions: std::collections::HashMap::new(),
         pools: std::collections::HashMap::new(),
         output_names: std::collections::HashMap::new(),
+        watcher: None,
     };
+
+    let (tx, rx) = calloop::channel::channel();
+    let tx_clone = tx.clone();
+    
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if let Ok(event) = res {
+            if event.kind.is_modify() || event.kind.is_create() {
+               let _ = tx_clone.send(AppEvent::ReloadConfig);
+            }
+        }
+    }).expect("Failed to create file watcher");
+
+    use notify::Watcher;
+    for file in &state.config.loaded_files {
+        let _ = watcher.watch(file, notify::RecursiveMode::NonRecursive);
+    }
+    state.watcher = Some(watcher);
 
     event_queue.roundtrip(&mut state).expect("Roundtrip failed");
 
@@ -46,24 +64,6 @@ fn main() {
     }
 
     calloop_wayland_source::WaylandSource::new(conn.clone(), event_queue).insert(loop_handle.clone()).unwrap();
-
-    let (tx, rx) = calloop::channel::channel();
-    
-    let tx_clone = tx.clone();
-    std::thread::spawn(move || {
-        let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-            if let Ok(event) = res {
-                if event.kind.is_modify() || event.kind.is_create() {
-                   let _ = tx_clone.send(AppEvent::ReloadConfig);
-                }
-            }
-        }).expect("Failed to create file watcher");
-        
-        use notify::Watcher;
-        let _ = watcher.watch(std::path::Path::new("rustbar.toml"), notify::RecursiveMode::NonRecursive);
-        
-        loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
-    });
 
     if let (Ok(xdg), Ok(sig)) = (std::env::var("XDG_RUNTIME_DIR"), std::env::var("HYPRLAND_INSTANCE_SIGNATURE")) {
         let tx_ipc = tx.clone();
@@ -92,7 +92,20 @@ fn main() {
             match msg {
                 AppEvent::ReloadConfig => {
                     std::thread::sleep(std::time::Duration::from_millis(50));
+                    let old_files = state.config.loaded_files.clone();
                     state.config = config::Config::load(std::path::Path::new("rustbar.toml"));
+                    
+                    // Update watcher
+                    if let Some(watcher) = &mut state.watcher {
+                        use notify::Watcher;
+                        for f in old_files {
+                            let _ = watcher.unwatch(&f);
+                        }
+                        for f in &state.config.loaded_files {
+                            let _ = watcher.watch(f, notify::RecursiveMode::NonRecursive);
+                        }
+                    }
+                    
                     state.refresh_all();
                 }
                 AppEvent::CheckFullscreen => {

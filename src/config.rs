@@ -36,6 +36,9 @@ pub struct Config {
 
     #[serde(default)]
     pub monitors: HashMap<String, MonitorConfig>,
+
+    #[serde(skip)]
+    pub loaded_files: Vec<std::path::PathBuf>,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -116,13 +119,15 @@ impl Default for Config {
             highlight_color: default_highlight_color(),
             layer: LayerConfig::default(),
             monitors: HashMap::new(),
+            loaded_files: Vec::new(),
         }
     }
 }
 
 impl Config {
     pub fn load(path: &Path) -> Self {
-        let config_value = match load_value_with_includes(path, &mut Vec::new()) {
+        let mut loaded_files = Vec::new();
+        let config_value = match load_value_with_includes(path, &mut Vec::new(), &mut loaded_files) {
             Ok(v) => v,
             Err(e) => {
                 info!("Could not read or parse config at {}: {}", path.display(), e);
@@ -130,12 +135,12 @@ impl Config {
             }
         };
 
-        println!("Config Value: {:?}", config_value);
-
         match config_value.try_into::<Config>() {
-            Ok(cfg) => cfg,
+            Ok(mut cfg) => {
+                cfg.loaded_files = loaded_files;
+                cfg
+            }
             Err(e) => {
-                println!("Failed to parse config: {:?}", e);
                 error!("Failed to parse config at {}: {}", path.display(), e);
                 Config::default()
             }
@@ -203,12 +208,14 @@ impl Config {
 fn load_value_with_includes(
     path: &Path,
     visited: &mut Vec<std::path::PathBuf>,
+    loaded_files: &mut Vec<std::path::PathBuf>,
 ) -> Result<toml::Value, Box<dyn std::error::Error>> {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     if visited.contains(&canonical) {
         return Err(format!("Circular include detected: {}", path.display()).into());
     }
     visited.push(canonical.clone());
+    loaded_files.push(canonical.clone());
 
     let content = fs::read_to_string(path)?;
     let mut value: toml::Value = toml::from_str(&content)?;
@@ -228,7 +235,7 @@ fn load_value_with_includes(
 
         for inc in include_paths {
             let inc_path = path.parent().unwrap_or(Path::new("")).join(inc);
-            match load_value_with_includes(&inc_path, visited) {
+            match load_value_with_includes(&inc_path, visited, loaded_files) {
                 Ok(inc_val) => {
                     if let Some(inc_vars) = inc_val.get("variables").and_then(|v| v.as_table()) {
                         for (k, v) in inc_vars {
@@ -369,6 +376,8 @@ opacity = 0.5
         let config = Config::load(&main_path);
 
         assert_eq!(config.color, "#C0A57E");
+        assert!(config.loaded_files.contains(&main_path.canonicalize().unwrap()));
+        assert!(config.loaded_files.contains(&inc_path.canonicalize().unwrap()));
 
         let _ = fs::remove_file(main_path);
         let _ = fs::remove_file(inc_path);
