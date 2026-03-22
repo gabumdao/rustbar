@@ -12,6 +12,7 @@
 - **Per-Monitor Configurations**: Override default behaviors for individual monitors using their Wayland output names (e.g., `DP-1`, `HDMI-A-1`).
 - **Live Reloading**: Automatically reloads configuration on-the-fly when it detects changes to the `rustbar.toml` file.
 - **Hyprland IPC Integration**: Features a built-in event listener connecting directly to Hyprland's socket to intelligently and automatically hide the frame whenever a fullscreen application (such as games or video players) is focused.
+15: - **SVG Pattern Layer**: Decorative SVG motifs can be repeated along the frame bezel with configurable scaling, rotation, spacing, and jitter for highly stylized visual themes.
 
 ## Installation
 
@@ -61,6 +62,14 @@ falloff = "ease_out"
 color = "#0000ff" # Blue frame specifically for DP-1
 thickness_top = 10
 thickness_bottom = 20
+
+# --- Decorative SVG Patterns ---
+[pattern]
+enabled = true
+source = "star.svg"      # Found in ~/.config/rustbar/svg/star.svg
+opacity = 0.2
+spacing = 30
+jitter_rotation = 15.0
 ```
 
 *Note: Colors can optionally include an alpha channel (e.g. `#000000CC`).*

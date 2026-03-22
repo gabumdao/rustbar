@@ -1,5 +1,6 @@
-use tiny_skia::{Pixmap, Color, Paint, Rect, PathBuilder, BlendMode, Transform, Stroke, FillRule, Path};
-use crate::config::MonitorConfig;
+use tiny_skia::{Pixmap, Color, Paint, Rect, PathBuilder, BlendMode, Transform, Stroke, FillRule, Path, PixmapPaint};
+use crate::config::{MonitorConfig, PatternConfig, MonitorPatternConfig};
+use log::warn;
 
 fn push_rounded_rect(pb: &mut PathBuilder, rect: Rect, radius: f32) {
     let radius = radius.min(rect.width() / 2.0).min(rect.height() / 2.0);
@@ -124,6 +125,208 @@ fn draw_inner_shadow(pixmap: &mut Pixmap, inner_rect: Rect, radius: f32, config:
     pixmap.draw_pixmap(0, 0, shadow_pixmap.as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), Some(&mask));
 }
 
+fn draw_pattern(
+    pixmap: &mut Pixmap,
+    inner_rect: Rect,
+    _radius: f32,
+    config: &MonitorPatternConfig,
+) {
+    if !config.enabled.unwrap_or(false) { return; }
+    let source = match &config.source {
+        Some(s) => s,
+        None => return,
+    };
+
+    let svg_path = PatternConfig::resolve_svg_path(source);
+    let svg_data = match std::fs::read(&svg_path) {
+        Ok(d) => d,
+        Err(e) => {
+            warn!("Failed to read SVG file {}: {}", svg_path.display(), e);
+            return;
+        }
+    };
+
+    let mut options = usvg::Options::default();
+    // Default to the SVG directory for resources
+    if let Some(parent) = svg_path.parent() {
+        options.resources_dir = Some(parent.to_path_buf());
+    }
+
+    let tree = match usvg::Tree::from_data(&svg_data, &options) {
+        Ok(t) => t,
+        Err(e) => {
+            warn!("Failed to parse SVG {}: {}", svg_path.display(), e);
+            return;
+        }
+    };
+
+    let transform_config = config.transform.clone().unwrap_or_default();
+    let repeat_config = config.repeat.clone().unwrap_or_default();
+    let sides_config = config.sides.clone().unwrap_or_default();
+    let corners_config = config.corners.clone().unwrap_or_default();
+    let _layout_config = config.layout.clone().unwrap_or_default();
+
+    let motif_size = tree.size();
+    let base_scale = transform_config.scale;
+    let motif_w = motif_size.width() * base_scale;
+    let motif_h = motif_size.height() * base_scale;
+
+    // We'll render the SVG once into a pixmap and reuse it
+    let mut motif_pixmap = match Pixmap::new(motif_w.ceil() as u32, motif_h.ceil() as u32) {
+        Some(p) => p,
+        None => return,
+    };
+
+    let motif_transform = Transform::from_scale(
+        motif_w / motif_size.width(),
+        motif_h / motif_size.height()
+    );
+
+    resvg::render(&tree, motif_transform, &mut motif_pixmap.as_mut());
+
+    // Apply tint color if specified
+    if let Some(tint_hex) = &config.color {
+        let tint = parse_hex_color(tint_hex, 1.0);
+        let mut paint = Paint::default();
+        paint.set_color(tint);
+        paint.blend_mode = BlendMode::SourceIn;
+        if let Some(r) = Rect::from_xywh(0.0, 0.0, motif_w, motif_h) {
+            motif_pixmap.fill_rect(r, &paint, Transform::identity(), None);
+        }
+    }
+
+    let seed = config.seed.unwrap_or(0);
+    let mut rng = SimpleRng::new(seed);
+
+    let draw_at = |p: &mut Pixmap, x: f32, y: f32, angle: f32, rng: &mut SimpleRng| {
+        let j_rotation = if repeat_config.jitter_rotation != 0.0 {
+            rng.next_f32_range(-repeat_config.jitter_rotation, repeat_config.jitter_rotation)
+        } else { 0.0 };
+        
+        let j_scale = if repeat_config.jitter_scale != 0.0 {
+            1.0 + rng.next_f32_range(-repeat_config.jitter_scale, repeat_config.jitter_scale)
+        } else { 1.0 };
+
+        let mut ts = Transform::identity();
+        ts = ts.post_translate(-motif_w / 2.0, -motif_h / 2.0);
+        ts = ts.post_scale(
+            if transform_config.flip_x { -j_scale } else { j_scale },
+            if transform_config.flip_y { -j_scale } else { j_scale }
+        );
+        ts = ts.post_rotate(transform_config.rotation + angle + j_rotation);
+        ts = ts.post_translate(x, y);
+
+        let mut pp = PixmapPaint::default();
+        pp.opacity = config.opacity.unwrap_or(1.0);
+        pp.blend_mode = match config.blend.as_deref() {
+            Some("multiply") => BlendMode::Multiply,
+            Some("screen") => BlendMode::Screen,
+            Some("overlay") => BlendMode::Overlay,
+            Some("darken") => BlendMode::Darken,
+            Some("lighten") => BlendMode::Lighten,
+            _ => BlendMode::SourceOver,
+        };
+
+        p.draw_pixmap(0, 0, motif_pixmap.as_ref(), &pp, ts, None);
+    };
+
+    let t_top = (inner_rect.top()) as f32;
+    let t_bottom = (pixmap.height() as f32 - inner_rect.bottom()) as f32;
+    let t_left = (inner_rect.left()) as f32;
+    let t_right = (pixmap.width() as f32 - inner_rect.right()) as f32;
+
+    let spacing = repeat_config.spacing.max(1.0);
+    let offset = repeat_config.offset;
+    let corner_padding = corners_config.corner_padding;
+
+    // Top edge
+    if sides_config.top {
+        let start_x = if corners_config.avoid_corners { t_left + corner_padding } else { 0.0 };
+        let end_x = if corners_config.avoid_corners { pixmap.width() as f32 - t_right - corner_padding } else { pixmap.width() as f32 };
+        let y = t_top / 2.0;
+        
+        let mut x = start_x + offset;
+        while x < end_x {
+            draw_at(pixmap, x, y, 0.0, &mut rng);
+            let jitter = if repeat_config.jitter_spacing != 0.0 {
+                rng.next_f32_range(-repeat_config.jitter_spacing, repeat_config.jitter_spacing)
+            } else { 0.0 };
+            x += spacing + jitter;
+        }
+    }
+
+    // Bottom edge
+    if sides_config.bottom {
+        let start_x = if corners_config.avoid_corners { t_left + corner_padding } else { 0.0 };
+        let end_x = if corners_config.avoid_corners { pixmap.width() as f32 - t_right - corner_padding } else { pixmap.width() as f32 };
+        let y = pixmap.height() as f32 - (t_bottom / 2.0);
+        
+        let mut x = start_x + offset;
+        while x < end_x {
+            draw_at(pixmap, x, y, 180.0, &mut rng);
+            let jitter = if repeat_config.jitter_spacing != 0.0 {
+                rng.next_f32_range(-repeat_config.jitter_spacing, repeat_config.jitter_spacing)
+            } else { 0.0 };
+            x += spacing + jitter;
+        }
+    }
+
+    // Left edge
+    if sides_config.left {
+        let start_y = if corners_config.avoid_corners { t_top + corner_padding } else { 0.0 };
+        let end_y = if corners_config.avoid_corners { pixmap.height() as f32 - t_bottom - corner_padding } else { pixmap.height() as f32 };
+        let x = t_left / 2.0;
+        
+        let mut y = start_y + offset;
+        while y < end_y {
+            draw_at(pixmap, x, y, -90.0, &mut rng);
+            let jitter = if repeat_config.jitter_spacing != 0.0 {
+                rng.next_f32_range(-repeat_config.jitter_spacing, repeat_config.jitter_spacing)
+            } else { 0.0 };
+            y += spacing + jitter;
+        }
+    }
+
+    // Right edge
+    if sides_config.right {
+        let start_y = if corners_config.avoid_corners { t_top + corner_padding } else { 0.0 };
+        let end_y = if corners_config.avoid_corners { pixmap.height() as f32 - t_bottom - corner_padding } else { pixmap.height() as f32 };
+        let x = pixmap.width() as f32 - (t_right / 2.0);
+        
+        let mut y = start_y + offset;
+        while y < end_y {
+            draw_at(pixmap, x, y, 90.0, &mut rng);
+            let jitter = if repeat_config.jitter_spacing != 0.0 {
+                rng.next_f32_range(-repeat_config.jitter_spacing, repeat_config.jitter_spacing)
+            } else { 0.0 };
+            y += spacing + jitter;
+        }
+    }
+}
+
+struct SimpleRng {
+    state: u64,
+}
+
+impl SimpleRng {
+    fn new(seed: u64) -> Self {
+        Self { state: seed.wrapping_add(1) }
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        (self.state >> 32) as u32
+    }
+
+    fn next_f32(&mut self) -> f32 {
+        (self.next_u32() as f32) / (u32::MAX as f32)
+    }
+
+    fn next_f32_range(&mut self, min: f32, max: f32) -> f32 {
+        min + (max - min) * self.next_f32()
+    }
+}
+
 pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
     let mut pixmap = Pixmap::new(width, height).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
     
@@ -220,6 +423,40 @@ pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
             if let Some(ish_config) = &config.inner_shadow {
                 draw_inner_shadow(&mut pixmap, inner_rect, radius, ish_config);
             }
+
+            // --- SVG Pattern ---
+            if let Some(p_config) = &config.pattern {
+                // We use a mask to ensure it only draws on the bezel
+                let mut pattern_pixmap = match Pixmap::new(width, height) {
+                    Some(p) => p,
+                    None => return vec![],
+                };
+
+                draw_pattern(&mut pattern_pixmap, inner_rect, radius, p_config);
+
+                let mut mask_pixmap = match Pixmap::new(width, height) {
+                    Some(p) => p,
+                    None => return vec![],
+                };
+                
+                // Create bezel mask: (Full - InnerCutout)
+                let mut pb = PathBuilder::new();
+                push_rounded_rect(&mut pb, Rect::from_xywh(0.0, 0.0, width as f32, height as f32).unwrap(), 0.0);
+                if let Some(full_path) = pb.finish() {
+                    let mut paint = Paint::default();
+                    paint.set_color(Color::WHITE);
+                    mask_pixmap.fill_path(&full_path, &paint, FillRule::Winding, Transform::identity(), None);
+                }
+
+                if let Some(inner_path) = get_inner_path(inner_rect, radius) {
+                    let mut clear_paint = Paint::default();
+                    clear_paint.blend_mode = BlendMode::Clear;
+                    mask_pixmap.fill_path(&inner_path, &clear_paint, FillRule::Winding, Transform::identity(), None);
+                }
+
+                let mask = tiny_skia::Mask::from_pixmap(mask_pixmap.as_ref(), tiny_skia::MaskType::Alpha);
+                pixmap.draw_pixmap(0, 0, pattern_pixmap.as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), Some(&mask));
+            }
         }
     }
     
@@ -271,6 +508,7 @@ mod tests {
             highlight_width: Some(2.0),
             highlight_color: Some("#FFFFFF22".to_string()),
             inner_shadow: None,
+            pattern: None,
             layer: None,
         };
 

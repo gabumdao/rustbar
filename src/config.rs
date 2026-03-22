@@ -38,10 +38,209 @@ pub struct Config {
     pub layer: LayerConfig,
 
     #[serde(default)]
+    pub pattern: PatternConfig,
+
+    #[serde(default)]
     pub monitors: HashMap<String, MonitorConfig>,
 
     #[serde(skip)]
     pub loaded_files: Vec<std::path::PathBuf>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct PatternConfig {
+    #[serde(default = "default_pattern_enabled")]
+    pub enabled: bool,
+    pub source: Option<String>,
+    #[serde(default = "default_pattern_mode")]
+    pub mode: String,
+    #[serde(default = "default_pattern_opacity")]
+    pub opacity: f32,
+    pub color: Option<String>,
+    #[serde(default = "default_pattern_blend")]
+    pub blend: String,
+    #[serde(default = "default_pattern_seed")]
+    pub seed: u64,
+
+    #[serde(default)]
+    pub transform: PatternTransformConfig,
+    #[serde(default)]
+    pub repeat: PatternRepeatConfig,
+    #[serde(default)]
+    pub sides: PatternSidesConfig,
+    #[serde(default)]
+    pub corners: PatternCornersConfig,
+    #[serde(default)]
+    pub layout: PatternLayoutConfig,
+}
+
+fn default_pattern_enabled() -> bool { false }
+fn default_pattern_mode() -> String { "repeat".to_string() }
+fn default_pattern_opacity() -> f32 { 1.0 }
+fn default_pattern_blend() -> String { "normal".to_string() }
+fn default_pattern_seed() -> u64 { 0 }
+
+impl Default for PatternConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_pattern_enabled(),
+            source: None,
+            mode: default_pattern_mode(),
+            opacity: default_pattern_opacity(),
+            color: None,
+            blend: default_pattern_blend(),
+            seed: default_pattern_seed(),
+            transform: PatternTransformConfig::default(),
+            repeat: PatternRepeatConfig::default(),
+            sides: PatternSidesConfig::default(),
+            corners: PatternCornersConfig::default(),
+            layout: PatternLayoutConfig::default(),
+        }
+    }
+}
+
+impl PatternConfig {
+    pub fn resolve_svg_path(source: &str) -> std::path::PathBuf {
+        let path = Path::new(source);
+        if path.is_absolute() {
+            return path.to_path_buf();
+        }
+
+        if let Ok(home) = std::env::var("HOME") {
+            let home_path = Path::new(&home).join(".config").join("rustbar").join("svg").join(source);
+            if home_path.exists() {
+                return home_path;
+            }
+        }
+        
+        // Fallback to current dir or just the source string
+        path.to_path_buf()
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct PatternTransformConfig {
+    #[serde(default = "default_pattern_scale")]
+    pub scale: f32,
+    #[serde(default = "default_pattern_rotation")]
+    pub rotation: f32,
+    #[serde(default = "default_pattern_flip_x")]
+    pub flip_x: bool,
+    #[serde(default = "default_pattern_flip_y")]
+    pub flip_y: bool,
+}
+
+fn default_pattern_scale() -> f32 { 1.0 }
+fn default_pattern_rotation() -> f32 { 0.0 }
+fn default_pattern_flip_x() -> bool { false }
+fn default_pattern_flip_y() -> bool { false }
+
+impl Default for PatternTransformConfig {
+    fn default() -> Self {
+        Self {
+            scale: default_pattern_scale(),
+            rotation: default_pattern_rotation(),
+            flip_x: default_pattern_flip_x(),
+            flip_y: default_pattern_flip_y(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct PatternRepeatConfig {
+    #[serde(default = "default_pattern_spacing")]
+    pub spacing: f32,
+    #[serde(default = "default_pattern_offset")]
+    pub offset: f32,
+    #[serde(default = "default_pattern_jitter_spacing")]
+    pub jitter_spacing: f32,
+    #[serde(default = "default_pattern_jitter_rotation")]
+    pub jitter_rotation: f32,
+    #[serde(default = "default_pattern_jitter_scale")]
+    pub jitter_scale: f32,
+}
+
+fn default_pattern_spacing() -> f32 { 24.0 }
+fn default_pattern_offset() -> f32 { 0.0 }
+fn default_pattern_jitter_spacing() -> f32 { 0.0 }
+fn default_pattern_jitter_rotation() -> f32 { 0.0 }
+fn default_pattern_jitter_scale() -> f32 { 0.0 }
+
+impl Default for PatternRepeatConfig {
+    fn default() -> Self {
+        Self {
+            spacing: default_pattern_spacing(),
+            offset: default_pattern_offset(),
+            jitter_spacing: default_pattern_jitter_spacing(),
+            jitter_rotation: default_pattern_jitter_rotation(),
+            jitter_scale: default_pattern_jitter_scale(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct PatternSidesConfig {
+    #[serde(default = "default_pattern_side_enabled")]
+    pub top: bool,
+    #[serde(default = "default_pattern_side_enabled")]
+    pub bottom: bool,
+    #[serde(default = "default_pattern_side_enabled")]
+    pub left: bool,
+    #[serde(default = "default_pattern_side_enabled")]
+    pub right: bool,
+}
+
+fn default_pattern_side_enabled() -> bool { true }
+
+impl Default for PatternSidesConfig {
+    fn default() -> Self {
+        Self {
+            top: default_pattern_side_enabled(),
+            bottom: default_pattern_side_enabled(),
+            left: default_pattern_side_enabled(),
+            right: default_pattern_side_enabled(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct PatternCornersConfig {
+    #[serde(default = "default_pattern_avoid_corners")]
+    pub avoid_corners: bool,
+    #[serde(default = "default_pattern_corner_padding")]
+    pub corner_padding: f32,
+}
+
+fn default_pattern_avoid_corners() -> bool { false }
+fn default_pattern_corner_padding() -> f32 { 12.0 }
+
+impl Default for PatternCornersConfig {
+    fn default() -> Self {
+        Self {
+            avoid_corners: default_pattern_avoid_corners(),
+            corner_padding: default_pattern_corner_padding(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct PatternLayoutConfig {
+    #[serde(default = "default_pattern_follow_edge")]
+    pub follow_edge_direction: bool,
+    #[serde(default = "default_pattern_clip")]
+    pub clip_to_frame: bool,
+}
+
+fn default_pattern_follow_edge() -> bool { true }
+fn default_pattern_clip() -> bool { true }
+
+impl Default for PatternLayoutConfig {
+    fn default() -> Self {
+        Self {
+            follow_edge_direction: default_pattern_follow_edge(),
+            clip_to_frame: default_pattern_clip(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -129,7 +328,24 @@ pub struct MonitorConfig {
     pub highlight_width: Option<f32>,
     pub highlight_color: Option<String>,
     pub inner_shadow: Option<MonitorInnerShadowConfig>,
+    pub pattern: Option<MonitorPatternConfig>,
     pub layer: Option<LayerConfig>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct MonitorPatternConfig {
+    pub enabled: Option<bool>,
+    pub source: Option<String>,
+    pub mode: Option<String>,
+    pub opacity: Option<f32>,
+    pub color: Option<String>,
+    pub blend: Option<String>,
+    pub seed: Option<u64>,
+    pub transform: Option<PatternTransformConfig>,
+    pub repeat: Option<PatternRepeatConfig>,
+    pub sides: Option<PatternSidesConfig>,
+    pub corners: Option<PatternCornersConfig>,
+    pub layout: Option<PatternLayoutConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -168,6 +384,7 @@ impl Default for Config {
             highlight_width: default_highlight_width(),
             highlight_color: default_highlight_color(),
             inner_shadow: InnerShadowConfig::default(),
+            pattern: PatternConfig::default(),
             layer: LayerConfig::default(),
             monitors: HashMap::new(),
             loaded_files: Vec::new(),
@@ -247,6 +464,20 @@ impl Config {
                 softness: Some(self.inner_shadow.softness),
                 falloff: Some(self.inner_shadow.falloff.clone()),
             }),
+            pattern: Some(MonitorPatternConfig {
+                enabled: Some(self.pattern.enabled),
+                source: self.pattern.source.clone(),
+                mode: Some(self.pattern.mode.clone()),
+                opacity: Some(self.pattern.opacity),
+                color: self.pattern.color.clone(),
+                blend: Some(self.pattern.blend.clone()),
+                seed: Some(self.pattern.seed),
+                transform: Some(self.pattern.transform.clone()),
+                repeat: Some(self.pattern.repeat.clone()),
+                sides: Some(self.pattern.sides.clone()),
+                corners: Some(self.pattern.corners.clone()),
+                layout: Some(self.pattern.layout.clone()),
+            }),
             layer: Some(self.layer.clone()),
         };
 
@@ -273,6 +504,20 @@ impl Config {
                     color: spec.inner_shadow.as_ref().and_then(|s| s.color.clone()).or(Some(self.inner_shadow.color.clone())),
                     softness: spec.inner_shadow.as_ref().and_then(|s| s.softness).or(Some(self.inner_shadow.softness)),
                     falloff: spec.inner_shadow.as_ref().and_then(|s| s.falloff.clone()).or(Some(self.inner_shadow.falloff.clone())),
+                }),
+                pattern: Some(MonitorPatternConfig {
+                    enabled: spec.pattern.as_ref().and_then(|s| s.enabled).or(Some(self.pattern.enabled)),
+                    source: spec.pattern.as_ref().and_then(|s| s.source.clone()).or(self.pattern.source.clone()),
+                    mode: spec.pattern.as_ref().and_then(|s| s.mode.clone()).or(Some(self.pattern.mode.clone())),
+                    opacity: spec.pattern.as_ref().and_then(|s| s.opacity).or(Some(self.pattern.opacity)),
+                    color: spec.pattern.as_ref().and_then(|s| s.color.clone()).or(self.pattern.color.clone()),
+                    blend: spec.pattern.as_ref().and_then(|s| s.blend.clone()).or(Some(self.pattern.blend.clone())),
+                    seed: spec.pattern.as_ref().and_then(|s| s.seed).or(Some(self.pattern.seed)),
+                    transform: spec.pattern.as_ref().and_then(|s| s.transform.clone()).or(Some(self.pattern.transform.clone())),
+                    repeat: spec.pattern.as_ref().and_then(|s| s.repeat.clone()).or(Some(self.pattern.repeat.clone())),
+                    sides: spec.pattern.as_ref().and_then(|s| s.sides.clone()).or(Some(self.pattern.sides.clone())),
+                    corners: spec.pattern.as_ref().and_then(|s| s.corners.clone()).or(Some(self.pattern.corners.clone())),
+                    layout: spec.pattern.as_ref().and_then(|s| s.layout.clone()).or(Some(self.pattern.layout.clone())),
                 }),
                 layer: match (&self.layer, &spec.layer) {
                     (g, Some(s)) => {
