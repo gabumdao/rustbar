@@ -544,4 +544,74 @@ mod tests {
         assert_eq!(pixels_inner.len(), (width * height * 4) as usize);
         assert_ne!(pixels_no_effects, pixels_inner);
     }
+
+    #[test]
+    fn test_draw_pattern_png() {
+        use crate::config::{MonitorPatternConfig, PatternTransformConfig, PatternRepeatConfig, PatternSidesConfig, PatternCornersConfig, PatternLayoutConfig};
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(24),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            radius: Some(32),
+            opacity: Some(0.9),
+            color: Some("#1a1b26".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: Some("#00000000".to_string()),
+            highlight_width: Some(0.0),
+            highlight_color: Some("#00000000".to_string()),
+            inner_shadow: None,
+            pattern: Some(MonitorPatternConfig {
+                enabled: Some(true),
+                source: Some("cross-svgrepo-com.svg".to_string()),
+                mode: Some("repeat".to_string()),
+                opacity: Some(0.4),
+                color: Some("#f7768e".to_string()),
+                blend: Some("normal".to_string()),
+                seed: Some(42),
+                transform: Some(PatternTransformConfig {
+                    scale: 0.8,
+                    rotation: 45.0,
+                    flip_x: false,
+                    flip_y: false,
+                }),
+                repeat: Some(PatternRepeatConfig {
+                    spacing: 40.0,
+                    offset: 10.0,
+                    jitter_spacing: 5.0,
+                    jitter_rotation: 15.0,
+                    jitter_scale: 0.1,
+                }),
+                sides: Some(PatternSidesConfig {
+                    top: true,
+                    bottom: true,
+                    left: true,
+                    right: true,
+                }),
+                corners: Some(PatternCornersConfig {
+                    avoid_corners: true,
+                    corner_padding: 20.0,
+                }),
+                layout: Some(PatternLayoutConfig {
+                    follow_edge_direction: true,
+                    clip_to_frame: true,
+                }),
+            }),
+            layer: None,
+        };
+
+        let width = 800;
+        let height = 600;
+        let pixels = draw_frame(width, height, &config);
+        
+        let mut pixmap = tiny_skia::Pixmap::new(width, height).unwrap();
+        pixmap.data_mut().copy_from_slice(&pixels);
+        for pixel in pixmap.data_mut().chunks_mut(4) {
+            pixel.swap(0, 2);
+        }
+        pixmap.save_png("test_output.png").unwrap();
+    }
 }

@@ -107,14 +107,32 @@ impl PatternConfig {
         }
 
         if let Ok(home) = std::env::var("HOME") {
-            let home_path = Path::new(&home).join(".config").join("rustbar").join("svg").join(source);
+            let svg_dir = Path::new(&home).join(".config").join("rustbar").join("svg");
+            
+            let home_path = svg_dir.join(source);
             if home_path.exists() {
                 return home_path;
             }
+
+            // Fallback: try adding .svg if missing
+            if !source.ends_with(".svg") {
+                let home_path_ext = svg_dir.join(format!("{}.svg", source));
+                if home_path_ext.exists() {
+                    return home_path_ext;
+                }
+            }
         }
         
+        let path_buf = path.to_path_buf();
+        if !path_buf.exists() && !source.ends_with(".svg") {
+            let fallback_buf = Path::new(&format!("{}.svg", source)).to_path_buf();
+            if fallback_buf.exists() {
+                return fallback_buf;
+            }
+        }
+
         // Fallback to current dir or just the source string
-        path.to_path_buf()
+        path_buf
     }
 }
 
