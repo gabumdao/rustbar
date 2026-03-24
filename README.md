@@ -33,7 +33,7 @@ Ensure you have a recent Rust toolchain installed, as well as a compatible Wayla
 
 ## Configuration
 
-Rustbar uses a straightforward TOML file for configuration. By default, it expects a file named `rustbar.toml` in your current working directory.
+Rustbar uses a straightforward TOML file for configuration. It resolves config in this order: `RUSTBAR_CONFIG`, `XDG_CONFIG_HOME/rustbar/rustbar.toml`, `~/.config/rustbar/rustbar.toml`, then a local `./rustbar.toml` fallback.
 
 ### Example `rustbar.toml`
 
@@ -67,7 +67,16 @@ thickness_bottom = 20
 [pattern]
 enabled = true
 source = "star.svg"      # Found in ~/.config/rustbar/svg/star.svg
+mode = "diagonal"
 opacity = 0.2
+
+[pattern.layout]
+angle = 45.0              # Placement direction for diagonal bands
+
+[pattern.transform]
+rotation = 0.0            # Extra motif rotation after placement direction is chosen
+
+[pattern.repeat]
 spacing = 30
 jitter_rotation = 15.0
 ```

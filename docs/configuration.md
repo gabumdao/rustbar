@@ -64,6 +64,7 @@ The `[pattern]` section allows you to place repeating SVG motifs along the frame
 | :--- | :--- | :--- | :--- |
 | `enabled` | Boolean | `false` | Enable or disable the pattern layer. |
 | `source` | String | (None) | Filename of the SVG motif (e.g., `"star.svg"`). Resolved relative to `~/.config/rustbar/svg`. |
+| `mode` | String | `"repeat"` | Placement mode: `"repeat"`, `"single"`, `"scatter"`, `"horizontal"`, `"vertical"`, `"diagonal"`, `"diagonal_repeat"`, `"diagonal_lines"`, `"checker"`, or `"diamond"`. `diagonal*` modes place motifs along real diagonal bands, not just rotated rows. |
 | `opacity` | Float | `1.0` | Opacity of the pattern (0.0 to 1.0). |
 | `color` | String | (None) | Tint color for the SVG (hex). Replaces all SVG colors. |
 | `blend` | String | `"normal"` | Blend mode: `"normal"`, `"multiply"`, `"screen"`, `"overlay"`, `"darken"`, `"lighten"`. |
@@ -76,9 +77,20 @@ Sub-section: `[pattern.transform]`
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `scale` | Float | `1.0` | Global scale of the SVG motif. |
-| `rotation` | Float | `0.0` | Base rotation of the motif (in degrees). |
+| `rotation` | Float | `0.0` | Extra motif rotation applied after the layout direction is chosen. This affects the SVG orientation, not the placement path. |
 | `flip_x` | Boolean | `false` | Flip the motif horizontally. |
 | `flip_y` | Boolean | `false` | Flip the motif vertically. |
+
+### Mode Behavior
+
+- `repeat`: draws a single repeated line through each enabled frame band.
+- `single`: draws one motif centered in each enabled frame band.
+- `scatter`: places motifs randomly within each enabled frame band.
+- `horizontal`: draws rows aligned at `0°` before `pattern.transform.rotation` is added.
+- `vertical`: draws rows aligned at `90°` before `pattern.transform.rotation` is added.
+- `diagonal`, `diagonal_repeat`, `diagonal_lines`: place motifs along true diagonal lines that traverse each enabled bezel band. The line direction uses `pattern.layout.angle`.
+- `checker`: draws an offset grid using the edge direction when `follow_edge_direction = true`.
+- `diamond`: draws a staggered diagonal grid. Its motif orientation uses `pattern.layout.angle` plus any extra `pattern.transform.rotation`.
 
 ### Repeat Layout
 
@@ -111,6 +123,18 @@ Sub-section: `[pattern.corners]`
 | :--- | :--- | :--- | :--- |
 | `avoid_corners` | Boolean | `false` | If true, pattern stops before reaching corner areas. |
 | `corner_padding`| Float | `12.0` | Padding distance from corners when `avoid_corners` is true. |
+
+### Layout Controls
+
+Sub-section: `[pattern.layout]`
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `follow_edge_direction` | Boolean | `true` | Rotate motifs to follow the edge direction when the selected mode uses edge orientation. |
+| `clip_to_frame` | Boolean | `true` | Clip all pattern drawing so it stays inside the bezel area. |
+| `prevent_overlap` | Boolean | `false` | If true, enforces extra spacing so repeated motifs do not overlap each other. |
+| `overlap_padding` | Float | `2.0` | Extra separation added when `prevent_overlap` is enabled. |
+| `angle` | Float | `45.0` | Direction angle in degrees for diagonal layouts. This controls placement direction for `diagonal`, `diagonal_repeat`, and `diagonal_lines`, and motif orientation for `diamond`. |
 
 ## Monitor-Specific Overrides
 

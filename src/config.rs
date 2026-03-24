@@ -1,8 +1,8 @@
+use log::{error, info};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use log::{error, info};
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Config {
@@ -20,12 +20,12 @@ pub struct Config {
     pub color: String,
     #[serde(default)]
     pub preset: Option<String>,
-    
+
     #[serde(default = "default_shadow_width")]
     pub shadow_width: f32,
     #[serde(default = "default_shadow_color")]
     pub shadow_color: String,
-    
+
     #[serde(default = "default_highlight_width")]
     pub highlight_width: f32,
     #[serde(default = "default_highlight_color")]
@@ -74,11 +74,21 @@ pub struct PatternConfig {
     pub layout: PatternLayoutConfig,
 }
 
-fn default_pattern_enabled() -> bool { false }
-fn default_pattern_mode() -> String { "repeat".to_string() }
-fn default_pattern_opacity() -> f32 { 1.0 }
-fn default_pattern_blend() -> String { "normal".to_string() }
-fn default_pattern_seed() -> u64 { 0 }
+fn default_pattern_enabled() -> bool {
+    false
+}
+fn default_pattern_mode() -> String {
+    "repeat".to_string()
+}
+fn default_pattern_opacity() -> f32 {
+    1.0
+}
+fn default_pattern_blend() -> String {
+    "normal".to_string()
+}
+fn default_pattern_seed() -> u64 {
+    0
+}
 
 impl Default for PatternConfig {
     fn default() -> Self {
@@ -101,28 +111,42 @@ impl Default for PatternConfig {
 
 impl PatternConfig {
     pub fn resolve_svg_path(source: &str) -> std::path::PathBuf {
+        if let Some(stripped) = source.strip_prefix("~/") {
+            if let Ok(home) = std::env::var("HOME") {
+                let expanded = Path::new(&home).join(stripped);
+                if expanded.exists() {
+                    return expanded;
+                }
+            }
+        }
+
         let path = Path::new(source);
         if path.is_absolute() {
             return path.to_path_buf();
         }
 
+        let mut search_dirs = Vec::new();
+        if let Ok(xdg_config_home) = std::env::var("XDG_CONFIG_HOME") {
+            search_dirs.push(Path::new(&xdg_config_home).join("rustbar").join("svg"));
+        }
         if let Ok(home) = std::env::var("HOME") {
-            let svg_dir = Path::new(&home).join(".config").join("rustbar").join("svg");
-            
-            let home_path = svg_dir.join(source);
-            if home_path.exists() {
-                return home_path;
-            }
+            search_dirs.push(Path::new(&home).join(".config").join("rustbar").join("svg"));
+        }
+        search_dirs.push(Path::new(".").to_path_buf());
 
-            // Fallback: try adding .svg if missing
+        for dir in search_dirs {
+            let candidate = dir.join(source);
+            if candidate.exists() {
+                return candidate;
+            }
             if !source.ends_with(".svg") {
-                let home_path_ext = svg_dir.join(format!("{}.svg", source));
-                if home_path_ext.exists() {
-                    return home_path_ext;
+                let candidate_svg = dir.join(format!("{}.svg", source));
+                if candidate_svg.exists() {
+                    return candidate_svg;
                 }
             }
         }
-        
+
         let path_buf = path.to_path_buf();
         if !path_buf.exists() && !source.ends_with(".svg") {
             let fallback_buf = Path::new(&format!("{}.svg", source)).to_path_buf();
@@ -131,7 +155,6 @@ impl PatternConfig {
             }
         }
 
-        // Fallback to current dir or just the source string
         path_buf
     }
 }
@@ -148,10 +171,18 @@ pub struct PatternTransformConfig {
     pub flip_y: bool,
 }
 
-fn default_pattern_scale() -> f32 { 1.0 }
-fn default_pattern_rotation() -> f32 { 0.0 }
-fn default_pattern_flip_x() -> bool { false }
-fn default_pattern_flip_y() -> bool { false }
+fn default_pattern_scale() -> f32 {
+    1.0
+}
+fn default_pattern_rotation() -> f32 {
+    0.0
+}
+fn default_pattern_flip_x() -> bool {
+    false
+}
+fn default_pattern_flip_y() -> bool {
+    false
+}
 
 impl Default for PatternTransformConfig {
     fn default() -> Self {
@@ -178,11 +209,21 @@ pub struct PatternRepeatConfig {
     pub jitter_scale: f32,
 }
 
-fn default_pattern_spacing() -> f32 { 24.0 }
-fn default_pattern_offset() -> f32 { 0.0 }
-fn default_pattern_jitter_spacing() -> f32 { 0.0 }
-fn default_pattern_jitter_rotation() -> f32 { 0.0 }
-fn default_pattern_jitter_scale() -> f32 { 0.0 }
+fn default_pattern_spacing() -> f32 {
+    24.0
+}
+fn default_pattern_offset() -> f32 {
+    0.0
+}
+fn default_pattern_jitter_spacing() -> f32 {
+    0.0
+}
+fn default_pattern_jitter_rotation() -> f32 {
+    0.0
+}
+fn default_pattern_jitter_scale() -> f32 {
+    0.0
+}
 
 impl Default for PatternRepeatConfig {
     fn default() -> Self {
@@ -208,7 +249,9 @@ pub struct PatternSidesConfig {
     pub right: bool,
 }
 
-fn default_pattern_side_enabled() -> bool { true }
+fn default_pattern_side_enabled() -> bool {
+    true
+}
 
 impl Default for PatternSidesConfig {
     fn default() -> Self {
@@ -229,8 +272,12 @@ pub struct PatternCornersConfig {
     pub corner_padding: f32,
 }
 
-fn default_pattern_avoid_corners() -> bool { false }
-fn default_pattern_corner_padding() -> f32 { 12.0 }
+fn default_pattern_avoid_corners() -> bool {
+    false
+}
+fn default_pattern_corner_padding() -> f32 {
+    12.0
+}
 
 impl Default for PatternCornersConfig {
     fn default() -> Self {
@@ -247,16 +294,38 @@ pub struct PatternLayoutConfig {
     pub follow_edge_direction: bool,
     #[serde(default = "default_pattern_clip")]
     pub clip_to_frame: bool,
+    #[serde(default = "default_pattern_prevent_overlap")]
+    pub prevent_overlap: bool,
+    #[serde(default = "default_pattern_overlap_padding")]
+    pub overlap_padding: f32,
+    #[serde(default = "default_pattern_angle")]
+    pub angle: f32,
 }
 
-fn default_pattern_follow_edge() -> bool { true }
-fn default_pattern_clip() -> bool { true }
+fn default_pattern_follow_edge() -> bool {
+    true
+}
+fn default_pattern_clip() -> bool {
+    true
+}
+fn default_pattern_prevent_overlap() -> bool {
+    false
+}
+fn default_pattern_overlap_padding() -> f32 {
+    2.0
+}
+fn default_pattern_angle() -> f32 {
+    45.0
+}
 
 impl Default for PatternLayoutConfig {
     fn default() -> Self {
         Self {
             follow_edge_direction: default_pattern_follow_edge(),
             clip_to_frame: default_pattern_clip(),
+            prevent_overlap: default_pattern_prevent_overlap(),
+            overlap_padding: default_pattern_overlap_padding(),
+            angle: default_pattern_angle(),
         }
     }
 }
@@ -277,12 +346,24 @@ pub struct InnerShadowConfig {
     pub falloff: String,
 }
 
-fn default_inner_shadow_enabled() -> bool { false }
-fn default_inner_shadow_size() -> f32 { 10.0 }
-fn default_inner_shadow_opacity() -> f32 { 0.5 }
-fn default_inner_shadow_color() -> String { "#000000".to_string() }
-fn default_inner_shadow_softness() -> f32 { 1.0 }
-fn default_inner_shadow_falloff() -> String { "ease_out".to_string() }
+fn default_inner_shadow_enabled() -> bool {
+    false
+}
+fn default_inner_shadow_size() -> f32 {
+    10.0
+}
+fn default_inner_shadow_opacity() -> f32 {
+    0.5
+}
+fn default_inner_shadow_color() -> String {
+    "#000000".to_string()
+}
+fn default_inner_shadow_softness() -> f32 {
+    1.0
+}
+fn default_inner_shadow_falloff() -> String {
+    "ease_out".to_string()
+}
 
 impl Default for InnerShadowConfig {
     fn default() -> Self {
@@ -311,11 +392,21 @@ pub struct LayerConfig {
     pub namespace: String,
 }
 
-fn default_layer_level() -> String { "bottom".to_string() }
-fn default_exclusive_zone() -> i32 { 0 }
-fn default_keyboard_interactivity() -> String { "none".to_string() }
-fn default_click_through() -> bool { true }
-fn default_namespace() -> String { "rustbar-frame".to_string() }
+fn default_layer_level() -> String {
+    "bottom".to_string()
+}
+fn default_exclusive_zone() -> i32 {
+    0
+}
+fn default_keyboard_interactivity() -> String {
+    "none".to_string()
+}
+fn default_click_through() -> bool {
+    true
+}
+fn default_namespace() -> String {
+    "rustbar-frame".to_string()
+}
 
 impl Default for LayerConfig {
     fn default() -> Self {
@@ -376,14 +467,30 @@ pub struct MonitorInnerShadowConfig {
     pub falloff: Option<String>,
 }
 
-fn default_thickness() -> u32 { 16 }
-fn default_radius() -> u32 { 24 }
-fn default_opacity() -> f32 { 1.0 }
-fn default_color() -> String { "#000000".to_string() }
-fn default_shadow_width() -> f32 { 12.0 }
-fn default_shadow_color() -> String { "#000000AA".to_string() }
-fn default_highlight_width() -> f32 { 3.0 }
-fn default_highlight_color() -> String { "#FFFFFF22".to_string() }
+fn default_thickness() -> u32 {
+    16
+}
+fn default_radius() -> u32 {
+    24
+}
+fn default_opacity() -> f32 {
+    1.0
+}
+fn default_color() -> String {
+    "#000000".to_string()
+}
+fn default_shadow_width() -> f32 {
+    12.0
+}
+fn default_shadow_color() -> String {
+    "#000000AA".to_string()
+}
+fn default_highlight_width() -> f32 {
+    3.0
+}
+fn default_highlight_color() -> String {
+    "#FFFFFF22".to_string()
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -412,50 +519,78 @@ impl Default for Config {
 
 impl Config {
     pub fn load_default() -> Self {
-        Self::load(&Self::resolve_path())
+        match Self::try_load(&Self::resolve_path()) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                info!("Could not read or parse config: {}", e);
+                Config::default()
+            }
+        }
+    }
+
+    pub fn try_load_default() -> Result<Self, String> {
+        Self::try_load(&Self::resolve_path())
     }
 
     pub fn resolve_path() -> std::path::PathBuf {
-        let local = std::path::Path::new("rustbar.toml");
-        if local.exists() {
-            return local.to_path_buf();
+        if let Ok(explicit) = std::env::var("RUSTBAR_CONFIG") {
+            let explicit_path = std::path::PathBuf::from(explicit);
+            if explicit_path.exists() {
+                return explicit_path;
+            }
         }
+
         if let Ok(xdg_config_home) = std::env::var("XDG_CONFIG_HOME") {
-            let xdg_path = std::path::Path::new(&xdg_config_home).join("rustbar").join("rustbar.toml");
+            let xdg_path = std::path::Path::new(&xdg_config_home)
+                .join("rustbar")
+                .join("rustbar.toml");
             if xdg_path.exists() {
                 return xdg_path;
             }
         }
+
         if let Ok(home) = std::env::var("HOME") {
-            let home_path = std::path::Path::new(&home).join(".config").join("rustbar").join("rustbar.toml");
+            let home_path = std::path::Path::new(&home)
+                .join(".config")
+                .join("rustbar")
+                .join("rustbar.toml");
             if home_path.exists() {
                 return home_path;
             }
         }
-        // Fallback to local
+
+        let local = std::path::Path::new("rustbar.toml");
+        if local.exists() {
+            return local.to_path_buf();
+        }
+
         std::path::PathBuf::from("rustbar.toml")
     }
 
     pub fn load(path: &Path) -> Self {
-        let mut loaded_files = Vec::new();
-        let config_value = match load_value_with_includes(path, &mut Vec::new(), &mut loaded_files) {
-            Ok(v) => v,
+        match Self::try_load(path) {
+            Ok(cfg) => cfg,
             Err(e) => {
-                info!("Could not read or parse config at {}: {}", path.display(), e);
-                return Config::default();
-            }
-        };
-
-        match config_value.try_into::<Config>() {
-            Ok(mut cfg) => {
-                cfg.loaded_files = loaded_files;
-                cfg
-            }
-            Err(e) => {
-                error!("Failed to parse config at {}: {}", path.display(), e);
+                info!(
+                    "Could not read or parse config at {}: {}",
+                    path.display(),
+                    e
+                );
                 Config::default()
             }
         }
+    }
+
+    pub fn try_load(path: &Path) -> Result<Self, String> {
+        let mut loaded_files = Vec::new();
+        let config_value = load_value_with_includes(path, &mut Vec::new(), &mut loaded_files)
+            .map_err(|e| format!("{}: {}", path.display(), e))?;
+
+        let mut cfg: Config = config_value
+            .try_into()
+            .map_err(|e| format!("{}: {}", path.display(), e))?;
+        cfg.loaded_files = loaded_files;
+        Ok(cfg)
     }
 
     pub fn for_monitor(&self, name: &str) -> MonitorConfig {
@@ -516,26 +651,98 @@ impl Config {
                 highlight_width: spec.highlight_width.or(global.highlight_width),
                 highlight_color: spec.highlight_color.clone().or(global.highlight_color),
                 inner_shadow: Some(MonitorInnerShadowConfig {
-                    enabled: spec.inner_shadow.as_ref().and_then(|s| s.enabled).or(Some(self.inner_shadow.enabled)),
-                    size: spec.inner_shadow.as_ref().and_then(|s| s.size).or(Some(self.inner_shadow.size)),
-                    opacity: spec.inner_shadow.as_ref().and_then(|s| s.opacity).or(Some(self.inner_shadow.opacity)),
-                    color: spec.inner_shadow.as_ref().and_then(|s| s.color.clone()).or(Some(self.inner_shadow.color.clone())),
-                    softness: spec.inner_shadow.as_ref().and_then(|s| s.softness).or(Some(self.inner_shadow.softness)),
-                    falloff: spec.inner_shadow.as_ref().and_then(|s| s.falloff.clone()).or(Some(self.inner_shadow.falloff.clone())),
+                    enabled: spec
+                        .inner_shadow
+                        .as_ref()
+                        .and_then(|s| s.enabled)
+                        .or(Some(self.inner_shadow.enabled)),
+                    size: spec
+                        .inner_shadow
+                        .as_ref()
+                        .and_then(|s| s.size)
+                        .or(Some(self.inner_shadow.size)),
+                    opacity: spec
+                        .inner_shadow
+                        .as_ref()
+                        .and_then(|s| s.opacity)
+                        .or(Some(self.inner_shadow.opacity)),
+                    color: spec
+                        .inner_shadow
+                        .as_ref()
+                        .and_then(|s| s.color.clone())
+                        .or(Some(self.inner_shadow.color.clone())),
+                    softness: spec
+                        .inner_shadow
+                        .as_ref()
+                        .and_then(|s| s.softness)
+                        .or(Some(self.inner_shadow.softness)),
+                    falloff: spec
+                        .inner_shadow
+                        .as_ref()
+                        .and_then(|s| s.falloff.clone())
+                        .or(Some(self.inner_shadow.falloff.clone())),
                 }),
                 pattern: Some(MonitorPatternConfig {
-                    enabled: spec.pattern.as_ref().and_then(|s| s.enabled).or(Some(self.pattern.enabled)),
-                    source: spec.pattern.as_ref().and_then(|s| s.source.clone()).or(self.pattern.source.clone()),
-                    mode: spec.pattern.as_ref().and_then(|s| s.mode.clone()).or(Some(self.pattern.mode.clone())),
-                    opacity: spec.pattern.as_ref().and_then(|s| s.opacity).or(Some(self.pattern.opacity)),
-                    color: spec.pattern.as_ref().and_then(|s| s.color.clone()).or(self.pattern.color.clone()),
-                    blend: spec.pattern.as_ref().and_then(|s| s.blend.clone()).or(Some(self.pattern.blend.clone())),
-                    seed: spec.pattern.as_ref().and_then(|s| s.seed).or(Some(self.pattern.seed)),
-                    transform: spec.pattern.as_ref().and_then(|s| s.transform.clone()).or(Some(self.pattern.transform.clone())),
-                    repeat: spec.pattern.as_ref().and_then(|s| s.repeat.clone()).or(Some(self.pattern.repeat.clone())),
-                    sides: spec.pattern.as_ref().and_then(|s| s.sides.clone()).or(Some(self.pattern.sides.clone())),
-                    corners: spec.pattern.as_ref().and_then(|s| s.corners.clone()).or(Some(self.pattern.corners.clone())),
-                    layout: spec.pattern.as_ref().and_then(|s| s.layout.clone()).or(Some(self.pattern.layout.clone())),
+                    enabled: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.enabled)
+                        .or(Some(self.pattern.enabled)),
+                    source: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.source.clone())
+                        .or(self.pattern.source.clone()),
+                    mode: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.mode.clone())
+                        .or(Some(self.pattern.mode.clone())),
+                    opacity: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.opacity)
+                        .or(Some(self.pattern.opacity)),
+                    color: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.color.clone())
+                        .or(self.pattern.color.clone()),
+                    blend: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.blend.clone())
+                        .or(Some(self.pattern.blend.clone())),
+                    seed: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.seed)
+                        .or(Some(self.pattern.seed)),
+                    transform: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.transform.clone())
+                        .or(Some(self.pattern.transform.clone())),
+                    repeat: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.repeat.clone())
+                        .or(Some(self.pattern.repeat.clone())),
+                    sides: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.sides.clone())
+                        .or(Some(self.pattern.sides.clone())),
+                    corners: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.corners.clone())
+                        .or(Some(self.pattern.corners.clone())),
+                    layout: spec
+                        .pattern
+                        .as_ref()
+                        .and_then(|s| s.layout.clone())
+                        .or(Some(self.pattern.layout.clone())),
                 }),
                 layer: match (&self.layer, &spec.layer) {
                     (g, Some(s)) => {
@@ -573,6 +780,7 @@ fn load_value_with_includes(
 
     let content = fs::read_to_string(path)?;
     let mut value: toml::Value = toml::from_str(&content)?;
+    let mut merged = toml::Value::Table(toml::map::Map::new());
 
     let mut vars = HashMap::new();
 
@@ -596,13 +804,21 @@ fn load_value_with_includes(
                             vars.insert(k.clone(), v.clone());
                         }
                     }
+                    merge_toml_values(&mut merged, inc_val);
                 }
                 Err(e) => {
-                    error!("Failed to load included config {}: {}", inc_path.display(), e);
+                    error!(
+                        "Failed to load included config {}: {}",
+                        inc_path.display(),
+                        e
+                    );
                 }
             }
         }
     }
+
+    merge_toml_values(&mut merged, value);
+    value = merged;
 
     // 2. Extract local variables
     if let Some(local_vars) = value.get("variables").and_then(|v| v.as_table()) {
@@ -619,13 +835,33 @@ fn load_value_with_includes(
     Ok(value)
 }
 
+fn merge_toml_values(base: &mut toml::Value, incoming: toml::Value) {
+    match (base, incoming) {
+        (toml::Value::Table(base_table), toml::Value::Table(incoming_table)) => {
+            for (key, incoming_value) in incoming_table {
+                if let Some(base_value) = base_table.get_mut(&key) {
+                    merge_toml_values(base_value, incoming_value);
+                } else {
+                    base_table.insert(key, incoming_value);
+                }
+            }
+        }
+        (base_slot, incoming_value) => {
+            *base_slot = incoming_value;
+        }
+    }
+}
+
 fn expand_variables(value: &mut toml::Value, vars: &HashMap<String, toml::Value>) {
     match value {
         toml::Value::String(s) => {
             // Full replacement
             if s.starts_with('$') && vars.contains_key(&s[1..]) {
                 *value = vars[&s[1..]].clone();
-            } else if s.starts_with("${") && s.ends_with('}') && vars.contains_key(&s[2..s.len() - 1]) {
+            } else if s.starts_with("${")
+                && s.ends_with('}')
+                && vars.contains_key(&s[2..s.len() - 1])
+            {
                 *value = vars[&s[2..s.len() - 1]].clone();
             } else {
                 // Substring interpolation
@@ -664,8 +900,8 @@ fn expand_variables(value: &mut toml::Value, vars: &HashMap<String, toml::Value>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use std::env::temp_dir;
+    use std::io::Write;
 
     #[test]
     fn test_variable_expansion_and_include() {
@@ -713,7 +949,7 @@ background = "#191510"
 foreground = "#ede6d8"
 color1  = "#C0A57E"
 "##;
-        
+
         let main_str = r##"
 include = ["colors.toml"]
 
@@ -730,11 +966,81 @@ opacity = 0.5
         let config = Config::load(&main_path);
 
         assert_eq!(config.color, "#C0A57E");
-        assert!(config.loaded_files.contains(&main_path.canonicalize().unwrap()));
-        assert!(config.loaded_files.contains(&inc_path.canonicalize().unwrap()));
+        assert!(
+            config
+                .loaded_files
+                .contains(&main_path.canonicalize().unwrap())
+        );
+        assert!(
+            config
+                .loaded_files
+                .contains(&inc_path.canonicalize().unwrap())
+        );
 
         let _ = fs::remove_file(main_path);
         let _ = fs::remove_file(inc_path);
     }
-}
 
+    #[test]
+    fn test_resolve_path_prefers_user_config_over_local() {
+        let dir = temp_dir().join("rustbar-config-precedence-test");
+        let xdg_dir = dir.join("xdg");
+        let xdg_config = xdg_dir.join("rustbar").join("rustbar.toml");
+        fs::create_dir_all(xdg_config.parent().unwrap()).unwrap();
+        fs::write(&xdg_config, "color = \"#123456\"\n").unwrap();
+
+        let local_path = std::env::current_dir().unwrap().join("rustbar.toml");
+        let local_backup = if local_path.exists() {
+            Some(fs::read_to_string(&local_path).unwrap())
+        } else {
+            None
+        };
+        fs::write(&local_path, "color = \"#abcdef\"\n").unwrap();
+
+        let old_xdg = std::env::var("XDG_CONFIG_HOME").ok();
+        let old_rustbar_config = std::env::var("RUSTBAR_CONFIG").ok();
+
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &xdg_dir);
+            std::env::remove_var("RUSTBAR_CONFIG");
+        }
+
+        let resolved = Config::resolve_path();
+        assert_eq!(resolved, xdg_config);
+
+        if let Some(prev) = old_xdg {
+            unsafe { std::env::set_var("XDG_CONFIG_HOME", prev) };
+        } else {
+            unsafe { std::env::remove_var("XDG_CONFIG_HOME") };
+        }
+
+        if let Some(prev) = old_rustbar_config {
+            unsafe { std::env::set_var("RUSTBAR_CONFIG", prev) };
+        } else {
+            unsafe { std::env::remove_var("RUSTBAR_CONFIG") };
+        }
+
+        if let Some(contents) = local_backup {
+            fs::write(&local_path, contents).unwrap();
+        } else {
+            let _ = fs::remove_file(&local_path);
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_resolve_svg_path_uses_xdg_config_home() {
+        let dir = temp_dir().join("rustbar-xdg-test");
+        let svg_dir = dir.join("rustbar").join("svg");
+        fs::create_dir_all(&svg_dir).unwrap();
+        let svg_path = svg_dir.join("cross-svgrepo-com.svg");
+        fs::write(&svg_path, r#"<svg xmlns="http://www.w3.org/2000/svg"/>"#).unwrap();
+
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+        let resolved = PatternConfig::resolve_svg_path("cross-svgrepo-com.svg");
+        assert_eq!(resolved, svg_path);
+
+        let _ = fs::remove_file(&svg_path);
+        let _ = fs::remove_dir_all(dir);
+    }
+}
