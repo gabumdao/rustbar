@@ -36,6 +36,7 @@ fn main() {
         pools: std::collections::HashMap::new(),
         output_names: std::collections::HashMap::new(),
         output_ids: std::collections::HashMap::new(),
+        fullscreen_hidden: std::collections::HashSet::new(),
         watcher: None,
     };
 
