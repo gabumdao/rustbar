@@ -13,6 +13,34 @@ Rustbar resolves its main config file in this order:
 
 Config files may use `include = "other.toml"` or `include = ["a.toml", "b.toml"]`. Included files are merged before deserialization, support variable expansion, and are watched for live reload together with the root config file.
 
+## Validation and Logging
+
+Rustbar currently validates configuration at load time and logs warnings for common silent-fallback cases.
+
+Current warning categories include:
+
+- unsupported `layer.level` values
+- unsupported `layer.keyboard_interactivity` values
+- unsupported `pattern.mode` values
+- unsupported `pattern.blend` values
+- unsupported `inner_shadow.falloff` values
+- `preset` usage, because preset application is not implemented yet
+- enabled pattern layers without `pattern.source`
+- enabled pattern layers whose resolved SVG asset does not exist
+- opacity values outside `0.0..=1.0`
+- non-positive `pattern.transform.scale`
+
+Reload behavior:
+
+- If reload fails to parse or deserialize the config, rustbar keeps the previous live config and logs a warning instead of partially applying broken state.
+- Validation warnings do not block startup or reload; they explain where rustbar will clamp values or fall back to defaults.
+
+Logging:
+
+- Rustbar uses `env_logger`.
+- Set `RUST_LOG=warn` to see warnings only.
+- Set `RUST_LOG=info` to also see informational startup/config messages.
+
 ## Global Settings
 
 These settings apply to all monitors unless overridden in the `[monitors]` section.
@@ -72,6 +100,7 @@ The `[layer]` section controls how the bar interacts with the Wayland compositor
 - Invalid `layer.keyboard_interactivity` values currently fall back to `"none"`.
 - Fullscreen hiding is currently Hyprland-specific. The implementation hides the frame by drawing a transparent buffer, clearing the exclusive zone, and forcing the surface to be non-interactive while fullscreen is active.
 - Runtime compositor verification is still pending; the current behavior is verified in code and unit tests, not yet in an automated compositor test harness.
+- Invalid values in this section now produce validation warnings during config load so fallback behavior is easier to spot.
 
 ## Output and Monitor Behavior
 
@@ -81,6 +110,43 @@ The `[layer]` section controls how the bar interacts with the Wayland compositor
 - Output scale is tracked per surface. When the compositor supports `wl_surface.set_buffer_scale`, rustbar renders into scaled buffers instead of reusing unscaled output dimensions.
 - Output transform is tracked per surface. When the compositor supports `wl_surface.set_buffer_transform`, rustbar applies the output transform and swaps buffer dimensions for quarter-turn rotations before rendering.
 - Hotplug, resolution-change, scale-change, and rotation-change behavior still need broader live compositor verification.
+
+### Output Lifecycle
+
+Rustbar's current output model is:
+
+1. Detect a Wayland output.
+2. Wait until output metadata is available.
+3. Create one layer-shell surface for that output if it is enabled by config.
+4. Apply global config plus any matching monitor override.
+5. Draw using that output's current logical size, scale, and transform.
+
+At runtime, rustbar currently reacts to output changes in these ways:
+
+- Output removal destroys the corresponding active surface.
+- Output updates trigger a reconcile path that refreshes the existing surface instead of creating duplicates.
+- If an output was announced before its metadata was complete, rustbar can now create the surface later when the compositor finishes advertising that output.
+- Config reload reevaluates which outputs are enabled, so a monitor can be disabled and re-enabled without restarting rustbar.
+
+Current limits:
+
+- Hotplug and output-change handling are implemented in code, but broader live compositor verification is still deferred.
+- There is no documented guarantee yet for every compositor's ordering of output add, update, and remove events.
+- Multi-monitor correctness is based on the current reconcile logic and manual Hyprland checks, not on automated integration coverage.
+
+### Monitor Override Precedence
+
+Rustbar applies monitor configuration in this order:
+
+1. Built-in defaults
+2. Global values from the root config
+3. Matching `[monitors."<output-name>"]` overrides
+
+Practical implications:
+
+- If an override omits a field, the global value remains in effect.
+- Setting `enabled = false` for a monitor suppresses that output's surface even if the global config is otherwise valid.
+- A monitor override changes runtime behavior only for the matching Wayland output name, not for all outputs with similar geometry.
 
 ## SVG Pattern Layer
 
@@ -97,6 +163,12 @@ The `[pattern]` section allows you to place repeating SVG motifs along the frame
 | `color` | String | (None) | Tint color for the SVG (hex). Replaces all SVG colors. |
 | `blend` | String | `"normal"` | Blend mode: `"normal"`, `"multiply"`, `"screen"`, `"overlay"`, `"darken"`, `"lighten"`. |
 | `seed` | Integer | `0` | Random seed for deterministic jitter variation. |
+
+Pattern asset behavior:
+
+- Pattern SVGs are resolved from the configured path, the XDG config SVG directory, the home config SVG directory, or the local working directory.
+- Parsed SVG trees are cached by resolved path and file modification time, so repeated redraws do not re-read and reparse unchanged assets.
+- Missing, unreadable, or invalid SVG assets currently log a warning once per asset state and then skip rendering until the file changes again.
 
 ### Transform
 

@@ -1,9 +1,96 @@
 use crate::config::{MonitorConfig, MonitorPatternConfig, PatternConfig};
 use log::warn;
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path as FsPath, PathBuf},
+    sync::{Mutex, OnceLock},
+    time::SystemTime,
+};
 use tiny_skia::{
     BlendMode, Color, FillRule, FilterQuality, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect,
     Stroke, Transform,
 };
+
+#[derive(Clone)]
+struct SvgCacheEntry {
+    modified: Option<SystemTime>,
+    result: Result<usvg::Tree, SvgCacheFailure>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SvgCacheFailure {
+    Missing,
+    Read(String),
+    Parse(String),
+}
+
+fn svg_cache() -> &'static Mutex<HashMap<PathBuf, SvgCacheEntry>> {
+    static SVG_CACHE: OnceLock<Mutex<HashMap<PathBuf, SvgCacheEntry>>> = OnceLock::new();
+    SVG_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn svg_modified_time(path: &FsPath) -> Option<SystemTime> {
+    fs::metadata(path)
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+}
+
+fn load_svg_tree(path: &FsPath) -> Result<usvg::Tree, SvgCacheFailure> {
+    let modified = svg_modified_time(path);
+
+    if let Some(entry) = svg_cache().lock().unwrap().get(path).cloned() {
+        if entry.modified == modified {
+            return entry.result;
+        }
+    }
+
+    let result = if !path.exists() {
+        warn!(
+            "SVG pattern source not found: {}. Make sure it is in ~/.config/rustbar/svg or provide an absolute path.",
+            path.display()
+        );
+        Err(SvgCacheFailure::Missing)
+    } else {
+        match fs::read(path) {
+            Ok(svg_data) => {
+                let mut options = usvg::Options::default();
+                if let Some(parent) = path.parent() {
+                    options.resources_dir = Some(parent.to_path_buf());
+                }
+
+                match usvg::Tree::from_data(&svg_data, &options) {
+                    Ok(tree) => Ok(tree),
+                    Err(error) => {
+                        let message = error.to_string();
+                        warn!("Failed to parse SVG {}: {}", path.display(), message);
+                        Err(SvgCacheFailure::Parse(message))
+                    }
+                }
+            }
+            Err(error) => {
+                let message = error.to_string();
+                warn!("Failed to read SVG file {}: {}", path.display(), message);
+                Err(SvgCacheFailure::Read(message))
+            }
+        }
+    };
+
+    svg_cache().lock().unwrap().insert(
+        path.to_path_buf(),
+        SvgCacheEntry {
+            modified,
+            result: result.clone(),
+        },
+    );
+
+    result
+}
+
+#[cfg(test)]
+fn clear_svg_cache() {
+    svg_cache().lock().unwrap().clear();
+}
 
 fn push_rounded_rect(pb: &mut PathBuilder, rect: Rect, radius: f32) {
     let radius = radius.min(rect.width() / 2.0).min(rect.height() / 2.0);
@@ -182,34 +269,9 @@ fn draw_pattern(pixmap: &mut Pixmap, inner_rect: Rect, radius: f32, config: &Mon
     };
 
     let svg_path = PatternConfig::resolve_svg_path(source);
-    if !svg_path.exists() {
-        warn!(
-            "SVG pattern source not found: {}. Make sure it is in ~/.config/rustbar/svg or provide an absolute path.",
-            svg_path.display()
-        );
-        return;
-    }
-
-    let svg_data = match std::fs::read(&svg_path) {
-        Ok(d) => d,
-        Err(e) => {
-            warn!("Failed to read SVG file {}: {}", svg_path.display(), e);
-            return;
-        }
-    };
-
-    let mut options = usvg::Options::default();
-    // Default to the SVG directory for resources
-    if let Some(parent) = svg_path.parent() {
-        options.resources_dir = Some(parent.to_path_buf());
-    }
-
-    let tree = match usvg::Tree::from_data(&svg_data, &options) {
-        Ok(t) => t,
-        Err(e) => {
-            warn!("Failed to parse SVG {}: {}", svg_path.display(), e);
-            return;
-        }
+    let tree = match load_svg_tree(&svg_path) {
+        Ok(tree) => tree,
+        Err(_) => return,
     };
 
     let transform_config = config.transform.clone().unwrap_or_default();
@@ -923,6 +985,29 @@ mod tests {
         let pixels_inner = draw_frame(width, height, &config_inner);
         assert_eq!(pixels_inner.len(), (width * height * 4) as usize);
         assert_ne!(pixels_no_effects, pixels_inner);
+    }
+
+    #[test]
+    fn test_svg_cache_invalidates_when_asset_disappears() {
+        use std::{env::temp_dir, fs};
+
+        let svg_path = temp_dir().join("rustbar-svg-cache-test.svg");
+        fs::write(
+            &svg_path,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4">
+<rect width="4" height="4" fill="#ffffff"/>
+</svg>"##,
+        )
+        .unwrap();
+
+        clear_svg_cache();
+        assert!(load_svg_tree(&svg_path).is_ok());
+
+        fs::remove_file(&svg_path).unwrap();
+        assert!(matches!(
+            load_svg_tree(&svg_path),
+            Err(SvgCacheFailure::Missing)
+        ));
     }
 
     #[test]

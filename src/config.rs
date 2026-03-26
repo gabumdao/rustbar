@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::{error, info, warn};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -517,6 +517,174 @@ impl Default for Config {
     }
 }
 
+fn is_valid_layer_level(level: &str) -> bool {
+    matches!(
+        level.to_lowercase().as_str(),
+        "background" | "bottom" | "top" | "overlay"
+    )
+}
+
+fn is_valid_keyboard_interactivity(value: &str) -> bool {
+    matches!(
+        value.to_lowercase().as_str(),
+        "none" | "on_demand" | "exclusive"
+    )
+}
+
+fn is_valid_pattern_mode(mode: &str) -> bool {
+    matches!(
+        mode.to_lowercase().as_str(),
+        "repeat"
+            | "single"
+            | "scatter"
+            | "horizontal"
+            | "vertical"
+            | "diagonal"
+            | "diagonal_repeat"
+            | "diagonal_lines"
+            | "checker"
+            | "diamond"
+    )
+}
+
+fn is_valid_pattern_blend(blend: &str) -> bool {
+    matches!(
+        blend.to_lowercase().as_str(),
+        "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten"
+    )
+}
+
+fn is_valid_inner_shadow_falloff(falloff: &str) -> bool {
+    matches!(
+        falloff.to_lowercase().as_str(),
+        "ease_out" | "ease_in" | "linear"
+    )
+}
+
+fn collect_monitor_validation_warnings(name: &str, config: &MonitorConfig) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let prefix = if name == "<global>" {
+        "global config".to_string()
+    } else {
+        format!("monitor '{}'", name)
+    };
+
+    if let Some(preset) = &config.preset {
+        warnings.push(format!(
+            "{} sets preset='{}', but preset application is not implemented",
+            prefix, preset
+        ));
+    }
+
+    if let Some(opacity) = config.opacity {
+        if !(0.0..=1.0).contains(&opacity) {
+            warnings.push(format!(
+                "{} uses opacity={}, expected a value between 0.0 and 1.0",
+                prefix, opacity
+            ));
+        }
+    }
+
+    if let Some(layer) = &config.layer {
+        if !is_valid_layer_level(&layer.level) {
+            warnings.push(format!(
+                "{} uses unsupported layer.level='{}'; rustbar will fall back to 'bottom'",
+                prefix, layer.level
+            ));
+        }
+        if !is_valid_keyboard_interactivity(&layer.keyboard_interactivity) {
+            warnings.push(format!(
+                "{} uses unsupported layer.keyboard_interactivity='{}'; rustbar will fall back to 'none'",
+                prefix, layer.keyboard_interactivity
+            ));
+        }
+    }
+
+    if let Some(inner_shadow) = &config.inner_shadow {
+        if let Some(opacity) = inner_shadow.opacity {
+            if !(0.0..=1.0).contains(&opacity) {
+                warnings.push(format!(
+                    "{} uses inner_shadow.opacity={}, expected a value between 0.0 and 1.0",
+                    prefix, opacity
+                ));
+            }
+        }
+        if let Some(softness) = inner_shadow.softness {
+            if softness <= 0.0 {
+                warnings.push(format!(
+                    "{} uses inner_shadow.softness={}, but rustbar clamps it above 0.0",
+                    prefix, softness
+                ));
+            }
+        }
+        if let Some(falloff) = &inner_shadow.falloff {
+            if !is_valid_inner_shadow_falloff(falloff) {
+                warnings.push(format!(
+                    "{} uses unsupported inner_shadow.falloff='{}'; rustbar will fall back to 'ease_out'",
+                    prefix, falloff
+                ));
+            }
+        }
+    }
+
+    if let Some(pattern) = &config.pattern {
+        if pattern.enabled.unwrap_or(false) {
+            match pattern.source.as_deref() {
+                Some(source) => {
+                    let resolved = PatternConfig::resolve_svg_path(source);
+                    if !resolved.exists() {
+                        warnings.push(format!(
+                            "{} enables pattern source='{}', but the resolved SVG path '{}' does not exist",
+                            prefix,
+                            source,
+                            resolved.display()
+                        ));
+                    }
+                }
+                None => warnings.push(format!(
+                    "{} enables the pattern layer without setting pattern.source",
+                    prefix
+                )),
+            }
+        }
+
+        if let Some(mode) = &pattern.mode {
+            if !is_valid_pattern_mode(mode) {
+                warnings.push(format!(
+                    "{} uses unsupported pattern.mode='{}'; rustbar may render it like the default mode",
+                    prefix, mode
+                ));
+            }
+        }
+        if let Some(blend) = &pattern.blend {
+            if !is_valid_pattern_blend(blend) {
+                warnings.push(format!(
+                    "{} uses unsupported pattern.blend='{}'; rustbar will fall back to 'normal'",
+                    prefix, blend
+                ));
+            }
+        }
+        if let Some(opacity) = pattern.opacity {
+            if !(0.0..=1.0).contains(&opacity) {
+                warnings.push(format!(
+                    "{} uses pattern.opacity={}, expected a value between 0.0 and 1.0",
+                    prefix, opacity
+                ));
+            }
+        }
+        if let Some(transform) = &pattern.transform {
+            if transform.scale <= 0.0 {
+                warnings.push(format!(
+                    "{} uses pattern.transform.scale={}, but rustbar clamps scale to a small positive value",
+                    prefix, transform.scale
+                ));
+            }
+        }
+    }
+
+    warnings
+}
+
 impl Config {
     pub fn load_default() -> Self {
         match Self::try_load(&Self::resolve_path()) {
@@ -590,6 +758,19 @@ impl Config {
             .try_into()
             .map_err(|e| format!("{}: {}", path.display(), e))?;
         cfg.loaded_files = loaded_files;
+
+        for warning in collect_monitor_validation_warnings("<global>", &cfg.for_monitor("<global>"))
+        {
+            warn!("Config warning: {}", warning);
+        }
+        for monitor_name in cfg.monitors.keys() {
+            for warning in
+                collect_monitor_validation_warnings(monitor_name, &cfg.for_monitor(monitor_name))
+            {
+                warn!("Config warning: {}", warning);
+            }
+        }
+
         Ok(cfg)
     }
 
@@ -1033,6 +1214,157 @@ opacity = 0.5
             let _ = fs::remove_file(&local_path);
         }
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_collect_monitor_validation_warnings_reports_silent_fallbacks() {
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: None,
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            radius: None,
+            opacity: Some(1.5),
+            color: None,
+            preset: Some("crt".to_string()),
+            shadow_width: None,
+            shadow_color: None,
+            highlight_width: None,
+            highlight_color: None,
+            inner_shadow: Some(MonitorInnerShadowConfig {
+                enabled: Some(true),
+                size: Some(10.0),
+                opacity: Some(2.0),
+                color: None,
+                softness: Some(0.0),
+                falloff: Some("weird".to_string()),
+            }),
+            pattern: Some(MonitorPatternConfig {
+                enabled: Some(true),
+                source: None,
+                mode: Some("spiral".to_string()),
+                opacity: Some(-0.2),
+                color: None,
+                blend: Some("xor".to_string()),
+                seed: None,
+                transform: Some(PatternTransformConfig {
+                    scale: 0.0,
+                    rotation: 0.0,
+                    flip_x: false,
+                    flip_y: false,
+                }),
+                repeat: None,
+                sides: None,
+                corners: None,
+                layout: None,
+            }),
+            layer: Some(LayerConfig {
+                level: "ceiling".to_string(),
+                exclusive_zone: 0,
+                keyboard_interactivity: "sometimes".to_string(),
+                click_through: true,
+                namespace: "rustbar-frame".to_string(),
+            }),
+        };
+
+        let warnings = collect_monitor_validation_warnings("DP-1", &config);
+
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("preset='crt'"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("layer.level='ceiling'"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("layer.keyboard_interactivity='sometimes'"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("pattern layer without setting pattern.source"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("pattern.mode='spiral'"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("pattern.blend='xor'"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("inner_shadow.falloff='weird'"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("opacity=1.5"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("pattern.opacity=-0.2"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("pattern.transform.scale=0"))
+        );
+    }
+
+    #[test]
+    fn test_collect_monitor_validation_warnings_reports_missing_pattern_asset() {
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: None,
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            radius: None,
+            opacity: None,
+            color: None,
+            preset: None,
+            shadow_width: None,
+            shadow_color: None,
+            highlight_width: None,
+            highlight_color: None,
+            inner_shadow: None,
+            pattern: Some(MonitorPatternConfig {
+                enabled: Some(true),
+                source: Some("definitely-missing-rustbar-test-asset".to_string()),
+                mode: Some("repeat".to_string()),
+                opacity: Some(1.0),
+                color: None,
+                blend: Some("normal".to_string()),
+                seed: None,
+                transform: None,
+                repeat: None,
+                sides: None,
+                corners: None,
+                layout: None,
+            }),
+            layer: None,
+        };
+
+        let warnings = collect_monitor_validation_warnings("DP-1", &config);
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("resolved SVG path")
+                    && warning.contains("does not exist"))
+        );
     }
 
     #[test]

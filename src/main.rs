@@ -135,7 +135,10 @@ fn main() {
                                 state.refresh_all();
                             }
                             Err(err) => {
-                                log::warn!("Skipping config reload: {}", err);
+                                log::warn!(
+                                    "Skipping config reload and keeping the previous config: {}",
+                                    err
+                                );
                             }
                         }
                     }

@@ -95,6 +95,13 @@ jitter_rotation = 15.0
 
 Runtime notes: rustbar creates one layer-shell surface per enabled output. On compositors that support the relevant `wl_surface` features, it now applies output-specific buffer scale and buffer transform automatically. Live compositor verification for scale changes and rotated outputs is still pending.
 
+Validation and logging notes:
+
+- Rustbar now emits load-time warnings for unsupported enum-like config values, missing pattern sources, missing SVG assets, invalid opacity ranges, and unimplemented `preset` usage.
+- If live reload fails, rustbar keeps the previous config and logs a warning instead of applying a broken partial state.
+- Pattern SVG parses are cached by path and modification time, and missing/invalid asset warnings are cached the same way so redraws do not spam the log.
+- Use `RUST_LOG=warn` for warnings only or `RUST_LOG=info` for a little more startup/config detail.
+
 ## Running
 
 Execute the binary from within the directory containing your configuration file:

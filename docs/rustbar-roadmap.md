@@ -92,11 +92,11 @@ Checklist:
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
 | One logical surface per output | Implemented | [x] | [ ] | [x] | [ ] | `new_output` creates a dedicated surface per output, and `update_output` now avoids duplicate surface creation while reconciling delayed output metadata. | Add live verification notes for hotplug and late-arriving output metadata. |
 | Output-specific configuration overrides | Implemented | [x] | [ ] | [x] | [ ] | `for_monitor` merges global and monitor-specific settings. | Add tests for override edge cases. |
-| Monitor hotplug handling | Partially implemented | [x] | [ ] | [ ] | [ ] | Output removal is handled; `update_output` now creates a surface when output info becomes available later and reapplies config/redraws on output changes. | Test true hotplug add/remove events on a live compositor. |
+| Monitor hotplug handling | Partially implemented | [x] | [ ] | [x] | [ ] | Output removal is handled; `update_output` now creates a surface when output info becomes available later and reapplies config/redraws on output changes. The config guide now documents the intended per-output lifecycle and current verification limits. | Test true hotplug add/remove events on a live compositor. |
 | Resolution changes | Partially implemented, Needs verification | [x] | [ ] | [ ] | [ ] | Layer configure still redraws on new size, and output updates now reconcile and refresh the affected surface. | Run real compositor tests and document guarantees. |
 | Output scale handling | Implemented, Needs verification | [x] | [x] | [x] | [ ] | Output scale is tracked per surface, `set_buffer_scale` is applied when supported, and buffers are rendered at scaled dimensions. | Verify live compositor behavior and document expectations. |
 | Rotation / transform handling | Implemented, Needs verification | [x] | [x] | [x] | [ ] | Output transform is tracked per surface, `set_buffer_transform` is applied when supported, and quarter-turn transforms swap buffer dimensions before rendering. | Verify live compositor behavior and document expectations. |
-| Stable behavior across multi-monitor sessions | Partially implemented, Needs verification | [x] | [ ] | [ ] | [ ] | Design supports multiple outputs, and output updates now reconcile existing surfaces more safely, but no integration coverage exists. | Add manual test matrix and regression checklist. |
+| Stable behavior across multi-monitor sessions | Partially implemented, Needs verification | [x] | [ ] | [x] | [ ] | Design supports multiple outputs, and output updates now reconcile existing surfaces more safely. The docs now explain the current lifecycle model, but no integration coverage exists. | Add manual test matrix and regression checklist. |
 | Remove surfaces for monitors disabled by reload | Implemented | [x] | [x] | [x] | [ ] | `sync_outputs` now removes active surfaces whose monitor config is disabled before applying updates, and user verified disable/re-enable behavior on reload. | Add broader compositor verification notes if behavior differs outside Hyprland. |
 
 Checklist:
@@ -167,8 +167,8 @@ Checklist:
 | Corner handling | Partially implemented | [x] | [x] | [x] | [ ] | `avoid_corners` and padding exist for top/bottom trimming; left/right behavior is implicit through band bounds. | Add clearer docs and visual validation. |
 | Diagonal mode | Implemented | [x] | [x] | [x] | [ ] | Real diagonal traversal is present. | Add examples and edge-case tests. |
 | Path-follow support | Not implemented | [ ] | [ ] | [ ] | [ ] | No support for following rounded frame contours or arbitrary paths. | Defer to later release. |
-| Failure handling for missing/invalid SVG files | Partially implemented, Needs documentation | [x] | [ ] | [ ] | [ ] | Warns and skips rendering; no surfaced UI/error summary exists. | Document failure modes and add tests. |
-| SVG caching | Not implemented | [ ] | [ ] | [ ] | [ ] | SVG is read and parsed during each redraw/reload path. | Add cache keyed by resolved path plus mtime. |
+| Failure handling for missing/invalid SVG files | Partially implemented | [x] | [x] | [x] | [ ] | Missing/read/parse failures are now cached by path and mtime so rustbar warns once per asset state instead of on every redraw, but there is still no surfaced UI/error summary. | Improve user-facing diagnostics. |
+| SVG caching | Implemented | [x] | [x] | [x] | [ ] | Parsed SVG trees are now cached by resolved path plus modification time to avoid repeated reads and parses during redraws. | Verify it under live reload workflows. |
 
 Checklist:
 
@@ -176,7 +176,8 @@ Checklist:
 - [x] Verified pattern render path in tests
 - [ ] Tested all placement modes visually
 - [ ] Documented all mode semantics with examples
-- [ ] Added caching plan and invalid-asset UX notes
+- [x] Added SVG caching in code and regression coverage
+- [x] Documented cache behavior and invalid-asset UX notes
 
 ### Configuration and User Experience
 
@@ -185,11 +186,11 @@ Checklist:
 | TOML configuration support | Implemented | [x] | [x] | [x] | [x] | Core config loading is present. | None. |
 | Include support | Implemented | [x] | [x] | [x] | [ ] | `include` and variable expansion work and are now documented in the configuration guide. | Add more examples if needed. |
 | Live reload / config reload | Implemented | [x] | [ ] | [x] | [ ] | File watcher reloads all loaded config files. | Add manual and automated reload verification. |
-| Validation of invalid config | Partially implemented | [x] | [ ] | [ ] | [ ] | Parse errors skip reload; invalid enum-like strings silently fall back in some cases. | Add schema validation and explicit diagnostics. |
+| Validation of invalid config | Partially implemented | [x] | [x] | [x] | [ ] | Parse errors still skip reload, but load-time validation warnings now flag silent fallback cases such as unsupported layer values, unsupported pattern settings, missing pattern sources, invalid opacity ranges, and unimplemented presets. | Consider stronger schema validation later. |
 | Fallback behavior | Implemented | [x] | [x] | [x] | [ ] | Config path, namespace fallback, and enum fallbacks are documented. | Add runtime verification notes where useful. |
 | Default values | Implemented | [x] | [x] | [x] | [ ] | Defaults are declared in config structs. | Sync docs tightly to code. |
-| Debug logging | Partially implemented | [x] | [ ] | [ ] | [ ] | `env_logger` is initialized; warnings exist, but no documented log strategy. | Document `RUST_LOG` usage and log categories. |
-| Readable errors | Partially implemented | [x] | [ ] | [ ] | [ ] | Warnings/errors exist but are inconsistent and mostly log-only. | Improve startup/reload error summaries. |
+| Debug logging | Partially implemented | [x] | [ ] | [x] | [ ] | `env_logger` is initialized; warning and info-level guidance is now documented, but logging remains simple. | Expand categories only if runtime debugging needs it. |
+| Readable errors | Partially implemented | [x] | [x] | [x] | [ ] | Reload failures now explicitly state that rustbar is keeping the previous config, and config validation warnings are more specific, but errors are still mostly log-only. | Improve startup/reload summaries if current logs prove insufficient. |
 | Documentation of configuration schema | Partially implemented | [x] | [ ] | [ ] | [ ] | Existing docs are incomplete and slightly ahead of or misaligned with implementation details. | Update docs after roadmap is merged. |
 
 Checklist:
@@ -206,7 +207,7 @@ Checklist:
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
 | Idle CPU behavior | Needs verification | [ ] | [ ] | [ ] | [ ] | Event loop is passive, but Hyprland listener reconnect loop and file watcher behavior are not measured. | Measure idle CPU on target compositors. |
 | Redraw behavior | Partially implemented | [x] | [ ] | [ ] | [ ] | Redraw happens on configure and config reload; no frame callback loop is used. | Document redraw triggers and avoid unnecessary rerenders. |
-| Caching strategy | Partially implemented | [x] | [ ] | [ ] | [ ] | SHM slot pools are reused per surface, but no higher-level asset/render caches exist. | Add SVG cache and maybe per-config render cache. |
+| Caching strategy | Partially implemented | [x] | [x] | [ ] | [ ] | SHM slot pools are reused per surface, and SVG trees are now cached by path plus mtime, but there is still no broader render/cache model. | Document current cache behavior and consider higher-level render caches later. |
 | Geometry recomputation rules | Partially implemented | [x] | [ ] | [ ] | [ ] | Geometry is recomputed on draw/configure, and scale/transform changes now feed the output-aware redraw path, but live guarantees are not verified yet. | Define explicit recomputation triggers and verify compositor behavior. |
 | Multi-monitor performance | Needs verification | [x] | [ ] | [ ] | [ ] | One pixmap per surface redraw; no benchmark data. | Measure redraw and memory cost across multiple outputs. |
 | Startup behavior | Partially implemented | [x] | [ ] | [ ] | [ ] | Startup path is straightforward but relies on `expect`/`unwrap` for critical failures. | Improve startup diagnostics and document prerequisites. |
@@ -247,13 +248,13 @@ Checklist:
 ### High-priority gaps
 
 - README and configuration docs must be kept aligned with the current Hyprland-specific fullscreen hide behavior and its verification limits.
-- Per-output lifecycle and deferred hotplug behavior still need a dedicated contributor-facing explanation beyond the configuration guide.
+- Live compositor verification notes for hotplug, resolution changes, scale changes, and transform changes still need to be recorded after the deferred manual pass.
 - No document explains pattern mode semantics with examples or visual expectations.
 - Visual compositor verification notes still need to be added once the remaining manual checks are run.
 
 ### Implemented but under-documented
 
-- Per-output lifecycle and hotplug expectations
+- Detailed compositor-specific results for hotplug, resolution changes, scale changes, and transform changes
 - Click-through implementation details and compositor caveats beyond code-level behavior
 - Pattern seed and deterministic jitter
 - Blend modes
@@ -321,7 +322,7 @@ Priority features:
 - Verify the newly implemented output scale-factor handling on live compositors
 - Verify the newly implemented output transform/rotation handling on live compositors
 - Add integration-level validation for multi-monitor sessions
-- Add SVG caching to avoid repeated parse/render work
+- Validate the new SVG caching behavior under live reload and repeated redraw scenarios
 - Improve config validation and user-facing diagnostics
 
 Dependencies / blockers:
@@ -398,11 +399,11 @@ Postpone until:
 1. Return to deferred hotplug, resolution-change, scale, and transform verification on a live compositor.
 2. Record compositor-specific results from that pass directly back into this roadmap and the checklist.
 3. Fix any runtime issues found during that later verification before expanding the feature surface further.
-4. Add SVG caching and better asset/config diagnostics once correctness work is in place.
+4. Use the documented output lifecycle model as the reference baseline when the deferred compositor verification pass resumes.
 
 ## 9. Active Verification Step
 
-The Hyprland shell/layer verification pass is complete for click-through, fullscreen hide/show, exclusive-zone behavior, namespace visibility in tooling, and per-monitor disable/re-enable on reload. The hotplug and output-change manual verification pass is still deferred. As of 2026-03-26, proper output-aware scale-factor and transform handling is now implemented in code through `set_buffer_scale`, `set_buffer_transform`, and scaled buffer allocation. The next immediate work is deferred live compositor verification for those paths.
+The Hyprland shell/layer verification pass is complete for click-through, fullscreen hide/show, exclusive-zone behavior, namespace visibility in tooling, and per-monitor disable/re-enable on reload. The per-output lifecycle and monitor-override precedence are now documented in the configuration guide. The hotplug and output-change manual verification pass is still deferred. As of 2026-03-26, proper output-aware scale-factor and transform handling is now implemented in code through `set_buffer_scale`, `set_buffer_transform`, and scaled buffer allocation. The next immediate work is deferred live compositor verification for those paths.
 
 ## 10. Contributor Tracking Checklist
 
@@ -418,8 +419,8 @@ The Hyprland shell/layer verification pass is complete for click-through, fullsc
 - [x] Exclusive-zone behavior tested
 - [x] Scale-factor fallback replaced with proper output-aware handling
 - [x] Transform/rotation fallback replaced with proper output-aware handling
-- [ ] SVG caching implemented
-- [ ] Invalid-config diagnostics improved
+- [x] SVG caching implemented
+- [x] Invalid-config diagnostics improved
 
 ### Validation tasks
 
