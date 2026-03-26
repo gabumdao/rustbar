@@ -169,25 +169,57 @@ Notes: Reload disable/re-enable behavior confirmed by user on Hyprland, 2026-03-
 
 ### 6. Hotplug and monitor changes
 
-If hardware allows:
+Run these in order if hardware and compositor support are available:
 
-- [ ] Disconnect an output and confirm the corresponding surface is removed
-- [ ] Reconnect the output and confirm the surface returns
-- [ ] Start `rustbar` with an output that appears late and confirm the surface is created once output metadata arrives
-- [ ] Change monitor arrangement or resolution and confirm the frame redraws correctly on the affected output
-- [ ] Note whether any duplicated surfaces, stale geometry, or missing redraws appear
+1. Start `rustbar` with all currently connected outputs active.
+2. Disconnect one non-primary output.
+3. Confirm the corresponding rustbar surface disappears and no stale frame remains.
+4. Reconnect that output.
+5. Confirm the surface returns on the reconnected output without creating duplicates on existing outputs.
+6. If your compositor allows late output enablement, start `rustbar` before enabling an output and confirm the surface appears once metadata arrives.
+7. Change monitor arrangement or resolution and confirm the affected output redraws correctly.
 
-Notes: __________
+Checks:
 
-### 7. Scale and transform fallback checks
+- [ ] Disconnecting an output removes the corresponding surface
+- [ ] Reconnecting an output recreates the corresponding surface
+- [ ] Late output enablement creates exactly one surface when metadata arrives
+- [ ] Resolution or arrangement changes redraw the correct output
+- [ ] No duplicated surfaces appear
+- [ ] No stale geometry remains after the change
 
-These are fallback-behavior checks only, not full feature validation.
+Record:
 
-- [ ] Change output scale if your setup allows and confirm the frame redraws instead of disappearing or leaving stale content
-- [ ] Change output rotation/transform if your setup allows and confirm the frame redraws instead of disappearing or leaving stale content
-- [ ] Record whether the current redraw-only behavior is visually acceptable or clearly insufficient
+- Outputs tested: __________
+- Result: Pass / Partial / Fail
+- Notes: __________
 
-Notes: __________
+### 7. Scale and transform verification
+
+These checks validate the implemented output-aware buffer handling, not the old redraw fallback.
+
+Recommended order:
+
+1. Change scale on one output only, if your setup allows it.
+2. Confirm the frame stays aligned to the bezel and does not blur, crop, or leave stale content.
+3. Restore the original scale before moving to transform tests.
+4. Change output rotation/transform on one output only.
+5. Confirm the frame remains attached to the correct edges and uses correct dimensions after quarter-turn rotation.
+
+Checks:
+
+- [ ] Scale change keeps the frame visible
+- [ ] Scale change keeps the frame aligned to the output edges
+- [ ] Scale change leaves no stale content
+- [ ] Transform change keeps the frame visible
+- [ ] Quarter-turn transform keeps dimensions correct
+- [ ] Transform change leaves no stale content
+
+Record:
+
+- Outputs tested: __________
+- Result: Pass / Partial / Fail
+- Notes: __________
 
 ## Sway Checklist
 
@@ -228,11 +260,41 @@ Current expectation: no compositor-specific fullscreen integration is implemente
 
 Notes: __________
 
+## Operator Procedure
+
+Use this pass in the following order so results are comparable across runs:
+
+1. Start `rustbar` with the shared test config.
+2. Confirm baseline visibility and input behavior before changing any outputs.
+3. Run hotplug and resolution-change checks before scale/transform checks.
+4. Record results immediately in the `Notes` field for each section.
+5. If a failure appears, capture whether it is visual-only, protocol-visible, or both.
+
+Suggested launch command:
+
+```bash
+RUST_LOG=info cargo run
+```
+
+Suggested inspection commands during the pass:
+
+```bash
+hyprctl layers
+hyprctl monitors all
+```
+
+For each failed step, record:
+
+- compositor name and date
+- output names involved
+- whether the issue reproduces after restarting `rustbar`
+- whether the issue reproduces after disconnect/reconnect or only after runtime changes
+
 ## Status
 
-- Current state: Deferred
-- Reason: manual compositor verification is still deferred even though the scale-factor and transform implementation work has landed.
-- Resume after: documentation is updated or when you want to run the deferred live verification pass.
+- Current state: Ready to run manually
+- Reason: the code and docs baseline are in place; remaining work is live compositor validation.
+- Resume after: completing the deferred hotplug, resolution-change, scale, and transform checks.
 
 ## Results Summary
 

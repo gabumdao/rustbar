@@ -399,11 +399,11 @@ Postpone until:
 1. Return to deferred hotplug, resolution-change, scale, and transform verification on a live compositor.
 2. Record compositor-specific results from that pass directly back into this roadmap and the checklist.
 3. Fix any runtime issues found during that later verification before expanding the feature surface further.
-4. Use the documented output lifecycle model as the reference baseline when the deferred compositor verification pass resumes.
+4. Use the documented output lifecycle model and the operator-ready checklist as the reference baseline when the deferred compositor verification pass resumes.
 
 ## 9. Active Verification Step
 
-The Hyprland shell/layer verification pass is complete for click-through, fullscreen hide/show, exclusive-zone behavior, namespace visibility in tooling, and per-monitor disable/re-enable on reload. The per-output lifecycle and monitor-override precedence are now documented in the configuration guide. The hotplug and output-change manual verification pass is still deferred. As of 2026-03-26, proper output-aware scale-factor and transform handling is now implemented in code through `set_buffer_scale`, `set_buffer_transform`, and scaled buffer allocation. The next immediate work is deferred live compositor verification for those paths.
+The Hyprland shell/layer verification pass is complete for click-through, fullscreen hide/show, exclusive-zone behavior, namespace visibility in tooling, and per-monitor disable/re-enable on reload. The per-output lifecycle and monitor-override precedence are now documented in the configuration guide, and the deferred compositor pass now has an operator-ready checklist. The hotplug and output-change manual verification pass itself is still pending. As of 2026-03-26, proper output-aware scale-factor and transform handling is now implemented in code through `set_buffer_scale`, `set_buffer_transform`, and scaled buffer allocation. The next immediate work is to execute that manual pass and record the results back into this roadmap.
 
 ## 10. Contributor Tracking Checklist
 
