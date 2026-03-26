@@ -2,6 +2,17 @@
 
 This document describes all available configuration options for `rustbar.toml`.
 
+## Config Resolution and Reload
+
+Rustbar resolves its main config file in this order:
+
+1. `RUSTBAR_CONFIG`
+2. `XDG_CONFIG_HOME/rustbar/rustbar.toml`
+3. `~/.config/rustbar/rustbar.toml`
+4. `./rustbar.toml`
+
+Config files may use `include = "other.toml"` or `include = ["a.toml", "b.toml"]`. Included files are merged before deserialization, support variable expansion, and are watched for live reload together with the root config file.
+
 ## Global Settings
 
 These settings apply to all monitors unless overridden in the `[monitors]` section.
@@ -16,7 +27,7 @@ These settings apply to all monitors unless overridden in the `[monitors]` secti
 | `radius` | Integer | `24` | Corner radius for the inner transparent area. |
 | `opacity` | Float | `1.0` | Opacity of the bar bezel (0.0 to 1.0). |
 | `color` | String | `"#000000"` | Hex color of the bar (e.g., `"#ff5555"`). Supports optional alpha `"#RRGGBBAA"`. |
-| `preset` | String | (None) | Visual preset (e.g., `"crt"`). |
+| `preset` | String | (None) | Reserved for future preset support. The key exists in the schema, but preset application logic is not implemented yet. |
 
 ## Shadow and Highlight
 
@@ -44,15 +55,32 @@ The `[inner_shadow]` section controls the shadow that fades inward from the beze
 
 ## Layer Configuration
 
-The `[layer]` section controls how the bar interacts with the Wayland compositor.
+The `[layer]` section controls how the bar interacts with the Wayland compositor. These settings are applied when a surface is created, when config is reloaded, and when fullscreen handling changes the effective shell behavior.
 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `level` | String | `"bottom"` | Wayland layer: `"background"`, `"bottom"`, `"top"`, or `"overlay"`. |
-| `exclusive_zone` | Integer | `0` | How much space (in pixels) the compositor should reserve for this bar. |
-| `keyboard_interactivity`| String | `"none"` | Level of keyboard focus: `"none"`, `"on_demand"`, or `"exclusive"`. |
-| `click_through` | Boolean | `true` | If true, clicks pass through the bar to windows underneath. |
-| `namespace` | String | `"rustbar-frame"`| Namespace for the Wayland layer-shell surface. |
+| `exclusive_zone` | Integer | `0` | How much space (in pixels) the compositor should reserve for this bar. When rustbar hides itself on a Hyprland fullscreen output, the effective exclusive zone is temporarily forced to `0`. |
+| `keyboard_interactivity`| String | `"none"` | Level of keyboard focus: `"none"`, `"on_demand"`, or `"exclusive"`. Hidden fullscreen surfaces are always forced to `"none"`. |
+| `click_through` | Boolean | `true` | If true, clicks pass through the bar to windows underneath. Hidden fullscreen surfaces are always forced to click-through. |
+| `namespace` | String | `"rustbar-frame"`| Namespace for the Wayland layer-shell surface. Blank values currently fall back to `"rustbar-frame"`. |
+
+
+### Layer Behavior Notes
+
+- Invalid `layer.level` values currently fall back to `"bottom"`.
+- Invalid `layer.keyboard_interactivity` values currently fall back to `"none"`.
+- Fullscreen hiding is currently Hyprland-specific. The implementation hides the frame by drawing a transparent buffer, clearing the exclusive zone, and forcing the surface to be non-interactive while fullscreen is active.
+- Runtime compositor verification is still pending; the current behavior is verified in code and unit tests, not yet in an automated compositor test harness.
+
+## Output and Monitor Behavior
+
+- Rustbar creates one layer-shell surface per enabled output.
+- Global config is applied first; `[monitors."<output-name>"]` overrides are then merged on top for the matching Wayland output name.
+- Disabling a monitor override during live reload removes that output's active surface, and re-enabling it recreates the surface.
+- Output scale is tracked per surface. When the compositor supports `wl_surface.set_buffer_scale`, rustbar renders into scaled buffers instead of reusing unscaled output dimensions.
+- Output transform is tracked per surface. When the compositor supports `wl_surface.set_buffer_transform`, rustbar applies the output transform and swaps buffer dimensions for quarter-turn rotations before rendering.
+- Hotplug, resolution-change, scale-change, and rotation-change behavior still need broader live compositor verification.
 
 ## SVG Pattern Layer
 

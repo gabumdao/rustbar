@@ -902,6 +902,12 @@ mod tests {
     use super::*;
     use std::env::temp_dir;
     use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     #[test]
     fn test_variable_expansion_and_include() {
@@ -983,6 +989,7 @@ opacity = 0.5
 
     #[test]
     fn test_resolve_path_prefers_user_config_over_local() {
+        let _guard = env_lock();
         let dir = temp_dir().join("rustbar-config-precedence-test");
         let xdg_dir = dir.join("xdg");
         let xdg_config = xdg_dir.join("rustbar").join("rustbar.toml");
@@ -1030,15 +1037,23 @@ opacity = 0.5
 
     #[test]
     fn test_resolve_svg_path_uses_xdg_config_home() {
+        let _guard = env_lock();
         let dir = temp_dir().join("rustbar-xdg-test");
         let svg_dir = dir.join("rustbar").join("svg");
         fs::create_dir_all(&svg_dir).unwrap();
         let svg_path = svg_dir.join("cross-svgrepo-com.svg");
         fs::write(&svg_path, r#"<svg xmlns="http://www.w3.org/2000/svg"/>"#).unwrap();
 
+        let old_xdg = std::env::var("XDG_CONFIG_HOME").ok();
         unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
         let resolved = PatternConfig::resolve_svg_path("cross-svgrepo-com.svg");
         assert_eq!(resolved, svg_path);
+
+        if let Some(prev) = old_xdg {
+            unsafe { std::env::set_var("XDG_CONFIG_HOME", prev) };
+        } else {
+            unsafe { std::env::remove_var("XDG_CONFIG_HOME") };
+        }
 
         let _ = fs::remove_file(&svg_path);
         let _ = fs::remove_dir_all(dir);

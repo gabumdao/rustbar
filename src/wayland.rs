@@ -1,4 +1,4 @@
-use crate::state::{State, map_keyboard_interactivity, map_layer};
+use crate::state::{State, effective_namespace, map_layer};
 use smithay_client_toolkit::{
     compositor::CompositorHandler,
     delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
@@ -9,11 +9,11 @@ use smithay_client_toolkit::{
         WaylandSurface,
         wlr_layer::{Anchor, LayerShellHandler, LayerSurface, LayerSurfaceConfigure},
     },
-    shm::{Shm, ShmHandler, slot::SlotPool},
+    shm::{Shm, ShmHandler},
 };
 use wayland_client::{
     Connection, Proxy, QueueHandle, delegate_noop,
-    protocol::{wl_output, wl_region::WlRegion, wl_shm, wl_surface::WlSurface},
+    protocol::{wl_output, wl_region::WlRegion, wl_surface::WlSurface},
 };
 
 impl ProvidesRegistryState for State {
@@ -28,18 +28,29 @@ impl CompositorHandler for State {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _surface: &WlSurface,
+        surface: &WlSurface,
         _new_factor: i32,
     ) {
+        if let Some(surface_id) = self.surface_id_for_wl_surface(surface) {
+            self.output_scales
+                .insert(surface_id, crate::state::normalized_scale(_new_factor));
+            self.pools.remove(&surface_id);
+            self.refresh_surface(surface_id);
+        }
     }
 
     fn transform_changed(
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _surface: &WlSurface,
+        surface: &WlSurface,
         _new_transform: wl_output::Transform,
     ) {
+        if let Some(surface_id) = self.surface_id_for_wl_surface(surface) {
+            self.output_transforms.insert(surface_id, _new_transform);
+            self.pools.remove(&surface_id);
+            self.refresh_surface(surface_id);
+        }
     }
 
     fn frame(
@@ -81,8 +92,17 @@ impl OutputHandler for State {
         qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
+        if self
+            .surface_id_for_output_id(output.id().protocol_id())
+            .is_some()
+        {
+            return;
+        }
+
         if let Some(info) = self.output_state.info(&output) {
             let name = info.name.unwrap_or_else(|| "Unknown".to_string());
+            let scale = crate::state::normalized_scale(info.scale_factor);
+            let transform = info.transform;
             let m_config = self.config.for_monitor(&name);
             if !m_config.enabled.unwrap_or(true) {
                 return;
@@ -92,33 +112,24 @@ impl OutputHandler for State {
                 let surface = self.compositor_state.create_surface(qh);
                 let layer_config = m_config.layer.unwrap_or_default();
 
-                if layer_config.click_through {
-                    let region = self.compositor_state.wl_compositor().create_region(qh, ());
-                    surface.set_input_region(Some(&region));
-                    region.destroy();
-                } else {
-                    surface.set_input_region(None);
-                }
-
                 let layer = layer_shell.create_layer_surface(
                     qh,
                     surface,
                     map_layer(&layer_config.level),
-                    Some(layer_config.namespace.clone()),
+                    Some(effective_namespace(&layer_config.namespace)),
                     Some(&output),
                 );
 
                 layer.set_size(0, 0);
                 layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
-                layer.set_exclusive_zone(layer_config.exclusive_zone);
-                layer.set_keyboard_interactivity(map_keyboard_interactivity(
-                    &layer_config.keyboard_interactivity,
-                ));
-                layer.commit();
+                let (scale, transform) = self.apply_surface_output_state(&layer, scale, transform);
+                self.apply_layer_surface_config(&layer, qh, &layer_config, false);
 
                 let id = layer.wl_surface().id().protocol_id();
                 self.output_names.insert(id, name);
                 self.output_ids.insert(id, output.id().protocol_id());
+                self.output_scales.insert(id, scale);
+                self.output_transforms.insert(id, transform);
                 self.active_surfaces.push(layer);
             }
         }
@@ -126,10 +137,11 @@ impl OutputHandler for State {
 
     fn update_output(
         &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
+        conn: &Connection,
+        qh: &QueueHandle<Self>,
+        output: wl_output::WlOutput,
     ) {
+        self.reconcile_output(conn, qh, output);
     }
 
     fn output_destroyed(
@@ -186,46 +198,7 @@ impl LayerShellHandler for State {
 
         let id_surf = layer.wl_surface().id().protocol_id();
         self.dimensions.insert(id_surf, (width, height));
-
-        let monitor_name = self
-            .output_names
-            .get(&id_surf)
-            .cloned()
-            .unwrap_or_else(|| "default".to_string());
-        let m_config = self.config.for_monitor(&monitor_name);
-        let pixels = if m_config.enabled.unwrap_or(true) {
-            crate::render::draw_frame(width, height, &m_config)
-        } else {
-            vec![0; (width * height * 4) as usize]
-        };
-
-        if let Some(shm) = self.shm.as_mut() {
-            let size = (width * height * 4) as usize;
-            let (pool, active_buf) = self.pools.entry(id_surf).or_insert_with(|| {
-                (
-                    SlotPool::new(size, shm).expect("Failed to create slot pool"),
-                    None,
-                )
-            });
-
-            if pool.resize(size).is_err() {
-                return;
-            }
-            if let Ok((buffer, canvas)) = pool.create_buffer(
-                width as i32,
-                height as i32,
-                width as i32 * 4,
-                wl_shm::Format::Argb8888,
-            ) {
-                canvas.copy_from_slice(&pixels);
-                layer.wl_surface().attach(Some(buffer.wl_buffer()), 0, 0);
-                layer
-                    .wl_surface()
-                    .damage_buffer(0, 0, width as i32, height as i32);
-                layer.wl_surface().commit();
-                *active_buf = Some(buffer);
-            }
-        }
+        self.refresh_surface(id_surf);
     }
 }
 

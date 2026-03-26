@@ -12,7 +12,7 @@
 - Config reload on file changes
 - Hyprland-specific fullscreen-aware layer adjustment
 
-This document is the canonical reference for the current project state as verified in the repository on 2026-03-24. Status values below are based on the current code, tests, and existing documentation, not on prior discussion.
+This document is the canonical reference for the current project state as verified in the repository on 2026-03-26. Status values below are based on the current code, tests, and existing documentation, not on prior discussion.
 
 ## 2. Current Status Summary
 
@@ -24,14 +24,13 @@ This document is the canonical reference for the current project state as verifi
 - SVG pattern rendering is implemented with multiple placement modes, transform controls, side enablement, corner avoidance, clipping, deterministic seeded jitter, and basic failure logging.
 - TOML configuration loading is implemented with defaults, monitor overrides, include support, variable expansion, and config-file live reload.
 - Output removal is handled, and new outputs can be added during sync/reload.
-- Unit tests currently cover config resolution/include behavior and rendering paths.
+- Unit tests currently cover config resolution/include behavior, rendering paths, and shell/layer mapping helpers. A live Wayland protocol trace on 2026-03-26 also confirmed per-output layer-surface creation and several shell-policy requests on Hyprland.
 
 ### What is only partial or fragile
 
-- Fullscreen handling is Hyprland-specific and currently downgrades fullscreen outputs to `bottom`, not true hide/disable behavior.
-- Output updates such as scale-factor changes, transform changes, and geometry changes are not handled explicitly.
-- Existing surfaces are updated on reload, but disabled monitors are not removed if they were already created.
-- Layer-shell focus avoidance is mostly achieved through defaults, but no broader compositor-compatibility validation exists.
+- Fullscreen handling now hides the frame on Hyprland outputs by swapping in a transparent buffer and clearing the exclusive zone; this was manually verified on Hyprland, but not yet on other compositors.
+- Output updates now reconcile surfaces, apply output-aware buffer scale/transform state, and allocate scaled buffers, but live compositor verification is still incomplete.
+- Layer-shell focus avoidance is improved through shared shell-policy application and passed the latest Hyprland verification pass, but no broader compositor-compatibility validation exists.
 - Pattern and rendering features exist, but most are documented inconsistently relative to actual behavior.
 
 ### What is missing
@@ -64,44 +63,50 @@ Legend for tracking columns:
 
 | Feature | Status | Code | Tested | Docs | Ready | Notes | Next action |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
-| Wayland layer-shell support | Implemented | [x] | [ ] | [x] | [ ] | Uses `zwlr_layer_shell_v1` via `smithay-client-toolkit`; surface created per output. | Add compositor-level smoke testing. |
-| Correct default layer behavior | Implemented | [x] | [ ] | [x] | [ ] | Default layer is `bottom`. | Verify behavior on Hyprland and Sway. |
-| Configurable `background` / `bottom` / `top` / `overlay` | Implemented | [x] | [ ] | [x] | [ ] | String mapping exists with `bottom` fallback for invalid values. | Add invalid-value validation and examples. |
-| Stable namespace handling | Implemented, Needs verification | [x] | [ ] | [x] | [ ] | Namespace is configurable and passed into layer-surface creation. | Verify compositor/tooling visibility, especially Hyprland inspectors. |
-| Compatibility with Hyprland inspection tools | Needs verification | [ ] | [ ] | [ ] | [ ] | Namespace support suggests compatibility, but no explicit validation or docs. | Test with `hyprctl layers` or equivalent tooling and document findings. |
-| Click-through behavior | Implemented, Needs verification | [x] | [ ] | [x] | [ ] | Input region is cleared when `click_through = true`. | Add compositor-level tests and document caveats. |
-| Focus avoidance | Partially implemented | [x] | [ ] | [ ] | [ ] | Default keyboard interactivity is `none`; no deeper focus policy handling. | Verify behavior across compositors and document limits. |
-| Exclusive zone handling | Implemented, Needs verification | [x] | [ ] | [x] | [ ] | Config value is applied to layer surfaces. | Test reserved-space behavior on target compositors. |
-| Fullscreen interaction behavior | Partially implemented, Needs bugfix | [x] | [ ] | [x] | [ ] | Hyprland-only path forces fullscreen outputs to `bottom`; README says it hides the frame, which is not what code does. | Decide intended behavior and implement hide/demote logic correctly. |
+| Wayland layer-shell support | Implemented | [x] | [x] | [x] | [ ] | Uses `zwlr_layer_shell_v1` via `smithay-client-toolkit`; both protocol tracing and manual Hyprland verification confirmed per-output surface creation. | Extend compositor verification beyond Hyprland. |
+| Correct default layer behavior | Implemented | [x] | [x] | [x] | [ ] | Default layer is `bottom`, and user verification confirmed expected Hyprland behavior. | Verify behavior on Sway. |
+| Configurable `background` / `bottom` / `top` / `overlay` | Implemented | [x] | [x] | [x] | [ ] | String mapping exists with `bottom` fallback for invalid values and now has unit coverage. | Add invalid-value validation and examples. |
+| Stable namespace handling | Implemented | [x] | [x] | [x] | [ ] | Namespace is configurable, blank values fall back to `rustbar-frame`, protocol tracing confirmed value selection, and user confirmed visibility in Hyprland tooling. | Verify behavior on additional compositors. |
+| Compatibility with Hyprland inspection tools | Implemented, Needs documentation | [x] | [x] | [ ] | [ ] | User confirmed namespace visibility in Hyprland tooling during manual verification. | Add specific tooling notes to docs if useful. |
+| Click-through behavior | Implemented | [x] | [x] | [x] | [ ] | Protocol tracing confirmed the request path and user verified the visual behavior on Hyprland. | Verify behavior on additional compositors. |
+| Focus avoidance | Partially implemented, Needs documentation | [x] | [x] | [ ] | [ ] | Default keyboard interactivity is `none`, fullscreen-hidden surfaces are forced non-interactive, and no focus issues were reported in the Hyprland pass. | Document current verified behavior and compositor limits. |
+| Exclusive zone handling | Implemented | [x] | [x] | [x] | [ ] | Config value is applied to layer surfaces, fullscreen-hidden surfaces clear the exclusive zone, and user verified the behavior on Hyprland. | Verify behavior on additional compositors. |
+| Fullscreen interaction behavior | Partially implemented | [x] | [x] | [x] | [ ] | Hyprland-only path hides the frame by rendering a transparent buffer and clearing the exclusive zone on fullscreen outputs; user verified hide/show behavior live. | Extend behavior or verification beyond Hyprland. |
 
 Checklist:
 
 - [x] Verified layer-shell creation in code
-- [ ] Verified click-through in a compositor session
-- [ ] Verified fullscreen behavior matches docs
-- [ ] Documented compositor-specific behavior and limits
+- [x] Verified layer-shell creation in a live Wayland protocol trace
+- [x] Verified layer-shell creation visually in a Hyprland session
+- [x] Verified namespace value and fallback in a live Wayland protocol trace
+- [x] Verified namespace visibility in Hyprland tooling
+- [x] Verified click-through request paths in a live Wayland protocol trace
+- [x] Verified click-through visually in a compositor session
+- [x] Verified fullscreen hiding logic in code
+- [x] Verified fullscreen behavior in a compositor session
+- [x] Documented current compositor-specific behavior and limits
 
 ### Multi-Monitor and Output Management
 
 | Feature | Status | Code | Tested | Docs | Ready | Notes | Next action |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
-| One logical surface per output | Implemented | [x] | [ ] | [ ] | [ ] | `new_output` creates a dedicated surface per output. | Document lifecycle clearly. |
+| One logical surface per output | Implemented | [x] | [ ] | [x] | [ ] | `new_output` creates a dedicated surface per output, and `update_output` now avoids duplicate surface creation while reconciling delayed output metadata. | Add live verification notes for hotplug and late-arriving output metadata. |
 | Output-specific configuration overrides | Implemented | [x] | [ ] | [x] | [ ] | `for_monitor` merges global and monitor-specific settings. | Add tests for override edge cases. |
-| Monitor hotplug handling | Partially implemented | [x] | [ ] | [ ] | [ ] | Output removal is handled; new outputs are added during initial scan and sync. | Test true hotplug events and disabled-monitor transitions. |
-| Resolution changes | Needs verification | [ ] | [ ] | [ ] | [ ] | Reconfigure path redraws on new size, but no explicit output update handling. | Run real compositor tests and document guarantees. |
-| Output scale handling | Not implemented | [x] | [ ] | [ ] | [ ] | `scale_factor_changed` is empty. | Implement scale-aware buffer/render strategy. |
-| Rotation / transform handling | Not implemented | [x] | [ ] | [ ] | [ ] | `transform_changed` is empty. | Implement transform-aware geometry/render behavior. |
-| Stable behavior across multi-monitor sessions | Partially implemented, Needs verification | [x] | [ ] | [ ] | [ ] | Design supports multiple outputs, but no integration coverage exists. | Add manual test matrix and regression checklist. |
-| Remove surfaces for monitors disabled by reload | Needs bugfix | [x] | [ ] | [ ] | [ ] | `sync_outputs` updates existing surfaces and creates new ones, but does not remove already-created surfaces that are now disabled. | Reconcile active surfaces against current config on reload. |
+| Monitor hotplug handling | Partially implemented | [x] | [ ] | [ ] | [ ] | Output removal is handled; `update_output` now creates a surface when output info becomes available later and reapplies config/redraws on output changes. | Test true hotplug add/remove events on a live compositor. |
+| Resolution changes | Partially implemented, Needs verification | [x] | [ ] | [ ] | [ ] | Layer configure still redraws on new size, and output updates now reconcile and refresh the affected surface. | Run real compositor tests and document guarantees. |
+| Output scale handling | Implemented, Needs verification | [x] | [x] | [x] | [ ] | Output scale is tracked per surface, `set_buffer_scale` is applied when supported, and buffers are rendered at scaled dimensions. | Verify live compositor behavior and document expectations. |
+| Rotation / transform handling | Implemented, Needs verification | [x] | [x] | [x] | [ ] | Output transform is tracked per surface, `set_buffer_transform` is applied when supported, and quarter-turn transforms swap buffer dimensions before rendering. | Verify live compositor behavior and document expectations. |
+| Stable behavior across multi-monitor sessions | Partially implemented, Needs verification | [x] | [ ] | [ ] | [ ] | Design supports multiple outputs, and output updates now reconcile existing surfaces more safely, but no integration coverage exists. | Add manual test matrix and regression checklist. |
+| Remove surfaces for monitors disabled by reload | Implemented | [x] | [x] | [x] | [ ] | `sync_outputs` now removes active surfaces whose monitor config is disabled before applying updates, and user verified disable/re-enable behavior on reload. | Add broader compositor verification notes if behavior differs outside Hyprland. |
 
 Checklist:
 
 - [x] Verified per-output surface creation in code
 - [ ] Tested hotplug add/remove
 - [ ] Tested resolution changes
-- [ ] Tested scale-factor changes
-- [ ] Tested output rotation
-- [ ] Documented monitor override precedence
+- [ ] Tested scale-factor changes with output-aware buffer scaling
+- [ ] Tested output rotation / transform changes with output-aware buffer transforms
+- [x] Documented monitor override precedence
 
 ### Frame Geometry and Layout
 
@@ -178,10 +183,10 @@ Checklist:
 | Feature | Status | Code | Tested | Docs | Ready | Notes | Next action |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
 | TOML configuration support | Implemented | [x] | [x] | [x] | [x] | Core config loading is present. | None. |
-| Include support | Implemented | [x] | [x] | [ ] | [ ] | `include` and variable expansion work, but docs do not describe them. | Document include/variables schema. |
+| Include support | Implemented | [x] | [x] | [x] | [ ] | `include` and variable expansion work and are now documented in the configuration guide. | Add more examples if needed. |
 | Live reload / config reload | Implemented | [x] | [ ] | [x] | [ ] | File watcher reloads all loaded config files. | Add manual and automated reload verification. |
 | Validation of invalid config | Partially implemented | [x] | [ ] | [ ] | [ ] | Parse errors skip reload; invalid enum-like strings silently fall back in some cases. | Add schema validation and explicit diagnostics. |
-| Fallback behavior | Implemented, Needs documentation | [x] | [x] | [ ] | [ ] | Config path and many values have defaults/fallbacks. | Document fallback order and invalid-value handling. |
+| Fallback behavior | Implemented | [x] | [x] | [x] | [ ] | Config path, namespace fallback, and enum fallbacks are documented. | Add runtime verification notes where useful. |
 | Default values | Implemented | [x] | [x] | [x] | [ ] | Defaults are declared in config structs. | Sync docs tightly to code. |
 | Debug logging | Partially implemented | [x] | [ ] | [ ] | [ ] | `env_logger` is initialized; warnings exist, but no documented log strategy. | Document `RUST_LOG` usage and log categories. |
 | Readable errors | Partially implemented | [x] | [ ] | [ ] | [ ] | Warnings/errors exist but are inconsistent and mostly log-only. | Improve startup/reload error summaries. |
@@ -192,7 +197,7 @@ Checklist:
 - [x] Verified path resolution order in code and tests
 - [x] Verified include and variable expansion in tests
 - [ ] Verified live reload end-to-end
-- [ ] Documented unsupported or fallback enum values
+- [x] Documented unsupported or fallback enum values
 - [ ] Added examples for per-monitor layer and pattern overrides
 
 ### Performance and Runtime Behavior
@@ -202,7 +207,7 @@ Checklist:
 | Idle CPU behavior | Needs verification | [ ] | [ ] | [ ] | [ ] | Event loop is passive, but Hyprland listener reconnect loop and file watcher behavior are not measured. | Measure idle CPU on target compositors. |
 | Redraw behavior | Partially implemented | [x] | [ ] | [ ] | [ ] | Redraw happens on configure and config reload; no frame callback loop is used. | Document redraw triggers and avoid unnecessary rerenders. |
 | Caching strategy | Partially implemented | [x] | [ ] | [ ] | [ ] | SHM slot pools are reused per surface, but no higher-level asset/render caches exist. | Add SVG cache and maybe per-config render cache. |
-| Geometry recomputation rules | Partially implemented | [x] | [ ] | [ ] | [ ] | Geometry is recomputed on draw/configure, but scale/transform changes are ignored. | Define explicit recomputation triggers. |
+| Geometry recomputation rules | Partially implemented | [x] | [ ] | [ ] | [ ] | Geometry is recomputed on draw/configure, and scale/transform changes now feed the output-aware redraw path, but live guarantees are not verified yet. | Define explicit recomputation triggers and verify compositor behavior. |
 | Multi-monitor performance | Needs verification | [x] | [ ] | [ ] | [ ] | One pixmap per surface redraw; no benchmark data. | Measure redraw and memory cost across multiple outputs. |
 | Startup behavior | Partially implemented | [x] | [ ] | [ ] | [ ] | Startup path is straightforward but relies on `expect`/`unwrap` for critical failures. | Improve startup diagnostics and document prerequisites. |
 | Runtime stability | Partially implemented | [x] | [x] | [ ] | [ ] | Unit tests pass, but runtime integration coverage is minimal. | Add compositor smoke tests and manual QA checklist. |
@@ -241,18 +246,15 @@ Checklist:
 
 ### High-priority gaps
 
-- README claims fullscreen handling "hides the frame"; current code only changes the layer on Hyprland fullscreen outputs.
-- README does not explain include support, variable expansion, or `loaded_files`-based reload behavior.
-- `docs/configuration.md` documents many options but does not distinguish implemented behavior from planned behavior.
-- No document explains per-output lifecycle, hotplug behavior, or monitor disable semantics on reload.
+- README and configuration docs must be kept aligned with the current Hyprland-specific fullscreen hide behavior and its verification limits.
+- Per-output lifecycle and deferred hotplug behavior still need a dedicated contributor-facing explanation beyond the configuration guide.
 - No document explains pattern mode semantics with examples or visual expectations.
+- Visual compositor verification notes still need to be added once the remaining manual checks are run.
 
 ### Implemented but under-documented
 
-- Config path resolution order
-- Include support and variables
-- Namespace behavior
-- Click-through implementation details and compositor caveats
+- Per-output lifecycle and hotplug expectations
+- Click-through implementation details and compositor caveats beyond code-level behavior
 - Pattern seed and deterministic jitter
 - Blend modes
 - `prevent_overlap` semantics
@@ -263,7 +265,7 @@ Checklist:
 
 - Fullscreen behavior wording
 - Production-readiness implied by feature lists
-- Lack of mention that scale and transform handlers are currently empty
+- Live compositor verification for scale and transform behavior is still missing
 - Lack of mention that `preset` exists in schema but is not applied
 
 ## 6. Development Roadmap
@@ -298,7 +300,7 @@ Priority features:
 - Fix fullscreen behavior so it matches product intent
 - Remove or reconcile surfaces for monitors disabled via config reload
 - Verify and document click-through, focus avoidance, and exclusive-zone behavior
-- Test hotplug and multi-monitor behavior manually
+- Test hotplug and output-change behavior manually now that `update_output` reconciles surfaces
 - Harden error handling around config reload and asset failures
 
 Dependencies / blockers:
@@ -316,8 +318,8 @@ Goal: establish a trustworthy 1.0 core.
 
 Priority features:
 
-- Implement output scale-factor handling
-- Implement output transform/rotation handling
+- Verify the newly implemented output scale-factor handling on live compositors
+- Verify the newly implemented output transform/rotation handling on live compositors
 - Add integration-level validation for multi-monitor sessions
 - Add SVG caching to avoid repeated parse/render work
 - Improve config validation and user-facing diagnostics
@@ -393,34 +395,36 @@ Postpone until:
 
 ## 8. Recommended Immediate Next Steps
 
-1. Update `README.md` and `docs/configuration.md` so fullscreen, pattern, include, and preset documentation matches the code.
-2. Fix reload reconciliation so monitors disabled in config are removed cleanly.
-3. Decide and implement the intended fullscreen policy, then test it on Hyprland.
-4. Add manual verification notes for click-through, exclusive zone, hotplug, and multi-monitor behavior.
-5. Implement scale-factor and transform handling before expanding the feature surface further.
-6. Add SVG caching and better asset/config diagnostics once correctness work is in place.
+1. Return to deferred hotplug, resolution-change, scale, and transform verification on a live compositor.
+2. Record compositor-specific results from that pass directly back into this roadmap and the checklist.
+3. Fix any runtime issues found during that later verification before expanding the feature surface further.
+4. Add SVG caching and better asset/config diagnostics once correctness work is in place.
 
-## 9. Contributor Tracking Checklist
+## 9. Active Verification Step
+
+The Hyprland shell/layer verification pass is complete for click-through, fullscreen hide/show, exclusive-zone behavior, namespace visibility in tooling, and per-monitor disable/re-enable on reload. The hotplug and output-change manual verification pass is still deferred. As of 2026-03-26, proper output-aware scale-factor and transform handling is now implemented in code through `set_buffer_scale`, `set_buffer_transform`, and scaled buffer allocation. The next immediate work is deferred live compositor verification for those paths.
+
+## 10. Contributor Tracking Checklist
 
 ### Immediate engineering tasks
 
-- [ ] README corrected to match actual fullscreen behavior
-- [ ] `docs/configuration.md` updated with include/variables support
+- [x] README corrected to match actual fullscreen behavior
+- [x] `docs/configuration.md` updated with include/variables support
 - [ ] `preset` marked as unimplemented or implemented properly
-- [ ] Reload removes disabled monitor surfaces
-- [ ] Fullscreen behavior changed from current layer-downgrade workaround to intended design
-- [ ] Hotplug add/remove tested
-- [ ] Click-through tested on at least Hyprland
-- [ ] Exclusive-zone behavior tested
-- [ ] Scale-factor handler implemented
-- [ ] Transform/rotation handler implemented
+- [x] Reload removes disabled monitor surfaces
+- [x] Fullscreen behavior changed from layer-downgrade workaround to transparent-hide behavior on Hyprland
+- [ ] Hotplug add/remove tested after `update_output` reconciliation fix
+- [x] Click-through tested on at least Hyprland
+- [x] Exclusive-zone behavior tested
+- [x] Scale-factor fallback replaced with proper output-aware handling
+- [x] Transform/rotation fallback replaced with proper output-aware handling
 - [ ] SVG caching implemented
 - [ ] Invalid-config diagnostics improved
 
 ### Validation tasks
 
 - [x] Unit tests currently pass with `cargo test`
-- [ ] Manual QA checklist added to repository
+- [x] Manual QA checklist added to repository
 - [ ] Visual regression strategy defined
 - [ ] Multi-compositor support matrix documented
 

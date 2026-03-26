@@ -10,9 +10,11 @@
 - **CRT-Inspired Visual Depth**: Includes robust built-in rendering for inner shadows, highlights, and bezel ridges to give deep visual depth to your display edge.
 - **Configurable Inner Shadow**: A dedicated `[inner_shadow]` section allows for a soft, adjustable shadow that follows the inner contour of the bezel.
 - **Per-Monitor Configurations**: Override default behaviors for individual monitors using their Wayland output names (e.g., `DP-1`, `HDMI-A-1`).
+- **Output-Aware Buffer Handling**: Rustbar now applies per-output buffer scale and buffer transform state so HiDPI outputs and rotated outputs can use correctly sized buffers when the compositor supports those Wayland surface features.
 - **Live Reloading**: Automatically reloads configuration on-the-fly when it detects changes to the `rustbar.toml` file.
-- **Hyprland IPC Integration**: Features a built-in event listener connecting directly to Hyprland's socket to intelligently and automatically hide the frame whenever a fullscreen application (such as games or video players) is focused.
-15: - **SVG Pattern Layer**: Decorative SVG motifs can be repeated along the frame bezel with configurable scaling, rotation, spacing, and jitter for highly stylized visual themes.
+- **Configurable Layer Behavior**: The layer-shell surface can be placed on `background`, `bottom`, `top`, or `overlay`, with configurable namespace, exclusive zone, click-through, and keyboard interactivity.
+- **Hyprland Fullscreen Handling**: On Hyprland, rustbar listens for monitor/fullscreen changes and hides the frame on fullscreen outputs by swapping in a transparent, non-interactive surface state.
+- **SVG Pattern Layer**: Decorative SVG motifs can be repeated along the frame bezel with configurable scaling, rotation, spacing, and jitter for highly stylized visual themes.
 
 ## Installation
 
@@ -33,7 +35,7 @@ Ensure you have a recent Rust toolchain installed, as well as a compatible Wayla
 
 ## Configuration
 
-Rustbar uses a straightforward TOML file for configuration. It resolves config in this order: `RUSTBAR_CONFIG`, `XDG_CONFIG_HOME/rustbar/rustbar.toml`, `~/.config/rustbar/rustbar.toml`, then a local `./rustbar.toml` fallback.
+Rustbar uses a straightforward TOML file for configuration. It resolves config in this order: `RUSTBAR_CONFIG`, `XDG_CONFIG_HOME/rustbar/rustbar.toml`, `~/.config/rustbar/rustbar.toml`, then a local `./rustbar.toml` fallback. Config files can also `include` other TOML files, and included files participate in live reload. Global settings are merged first, then per-monitor overrides are applied by Wayland output name.
 
 ### Example `rustbar.toml`
 
@@ -56,8 +58,16 @@ opacity = 0.3
 softness = 1.0
 falloff = "ease_out"
 
+# --- Shell / Layer Behavior ---
+[layer]
+level = "bottom"
+click_through = true
+keyboard_interactivity = "none"
+namespace = "rustbar-frame"
+exclusive_zone = 0
+
 # --- Per-Monitor Overrides ---
-# To override settings for a specific monitor, specify its Waysland output name:
+# To override settings for a specific monitor, specify its Wayland output name:
 [monitors."DP-1"]
 color = "#0000ff" # Blue frame specifically for DP-1
 thickness_top = 10
@@ -82,6 +92,8 @@ jitter_rotation = 15.0
 ```
 
 *Note: Colors can optionally include an alpha channel (e.g. `#000000CC`).*
+
+Runtime notes: rustbar creates one layer-shell surface per enabled output. On compositors that support the relevant `wl_surface` features, it now applies output-specific buffer scale and buffer transform automatically. Live compositor verification for scale changes and rotated outputs is still pending.
 
 ## Running
 

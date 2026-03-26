@@ -36,6 +36,8 @@ fn main() {
         pools: std::collections::HashMap::new(),
         output_names: std::collections::HashMap::new(),
         output_ids: std::collections::HashMap::new(),
+        output_scales: std::collections::HashMap::new(),
+        output_transforms: std::collections::HashMap::new(),
         fullscreen_hidden: std::collections::HashSet::new(),
         watcher: None,
     };
@@ -138,7 +140,7 @@ fn main() {
                         }
                     }
                     AppEvent::CheckFullscreen => {
-                        state.update_fullscreen();
+                        state.update_fullscreen(&qh_for_reload);
                     }
                 }
             }
