@@ -72,10 +72,10 @@ Additional code changes completed on 2026-03-26 before this verification pass:
 | Namespace / compositor inspection | [x] | [ ] | Protocol trace confirmed configured namespace and blank fallback; user also confirmed namespace visibility in Hyprland tooling. |
 | Fullscreen hide/show behavior | [x] | [ ] | User confirmed fullscreen hide/show behavior in a live Hyprland session. |
 | Per-monitor disable on reload | [x] | [ ] | User confirmed disable/re-enable behavior on reload in a live Hyprland session. |
-| Hotplug add/remove | [ ] | [ ] | Code path was tightened on 2026-03-26; still needs live compositor verification. |
-| Resolution / output change behavior | [ ] | [ ] | `update_output` now reconciles and redraws, but this has not been verified live yet. |
-| Scale-factor handling | [ ] | [ ] | Implemented in code with output-aware buffer scaling; still needs live compositor verification. |
-| Transform handling | [ ] | [ ] | Implemented in code with output-aware buffer transforms and quarter-turn dimension swapping; still needs live compositor verification. |
+| Hotplug add/remove | [x] | [ ] | User verified live Hyprland hotplug add/remove behavior on 2026-03-26. |
+| Resolution / output change behavior | [x] | [ ] | User verified live Hyprland output-change and resolution-change behavior on 2026-03-26. |
+| Scale-factor handling | [x] | [ ] | User verified live Hyprland scale-factor handling on 2026-03-26. |
+| Transform handling | [x] | [ ] | User verified live Hyprland transform handling on 2026-03-26. |
 
 ## Shared Test Config
 
@@ -181,18 +181,18 @@ Run these in order if hardware and compositor support are available:
 
 Checks:
 
-- [ ] Disconnecting an output removes the corresponding surface
-- [ ] Reconnecting an output recreates the corresponding surface
-- [ ] Late output enablement creates exactly one surface when metadata arrives
-- [ ] Resolution or arrangement changes redraw the correct output
-- [ ] No duplicated surfaces appear
-- [ ] No stale geometry remains after the change
+- [x] Disconnecting an output removes the corresponding surface
+- [x] Reconnecting an output recreates the corresponding surface
+- [x] Late output enablement creates exactly one surface when metadata arrives
+- [x] Resolution or arrangement changes redraw the correct output
+- [x] No duplicated surfaces appear
+- [x] No stale geometry remains after the change
 
 Record:
 
-- Outputs tested: __________
-- Result: Pass / Partial / Fail
-- Notes: __________
+- Outputs tested: User-verified on Hyprland across the active monitor set, 2026-03-26
+- Result: Pass
+- Notes: Hotplug add/remove, late surface creation, and resolution-change redraw behavior were all reported as passing in the live Hyprland session.
 
 ### 7. Scale and transform verification
 
@@ -208,20 +208,28 @@ Recommended order:
 
 Checks:
 
-- [ ] Scale change keeps the frame visible
-- [ ] Scale change keeps the frame aligned to the output edges
-- [ ] Scale change leaves no stale content
-- [ ] Transform change keeps the frame visible
-- [ ] Quarter-turn transform keeps dimensions correct
-- [ ] Transform change leaves no stale content
+- [x] Scale change keeps the frame visible
+- [x] Scale change keeps the frame aligned to the output edges
+- [x] Scale change leaves no stale content
+- [x] Transform change keeps the frame visible
+- [x] Quarter-turn transform keeps dimensions correct
+- [x] Transform change leaves no stale content
 
 Record:
 
-- Outputs tested: __________
-- Result: Pass / Partial / Fail
-- Notes: __________
+- Outputs tested: User-verified on Hyprland with live scale and transform changes, 2026-03-26
+- Result: Pass
+- Notes: Scale changes kept the frame aligned and visible without stale content, and transform changes kept the frame attached to the correct edges with correct quarter-turn dimensions.
 
 ## Sway Checklist
+
+Suggested inspection commands:
+
+```bash
+swaymsg -t get_outputs
+swaymsg -t get_tree
+swaymsg -t get_version
+```
 
 ### 1. Baseline startup
 
@@ -230,9 +238,15 @@ Record:
 - [ ] Confirm no unexpected focus change occurs on launch
 - [ ] Confirm pointer input passes through the frame when `click_through = true`
 
-Notes: __________
+Record:
+
+- Outputs tested: __________
+- Result: Pass / Partial / Fail
+- Notes: __________
 
 ### 2. Layer selection
+
+Repeat with `layer.level = "background"`, `"bottom"`, `"top"`, and `"overlay"`.
 
 - [ ] `background` behaves as expected
 - [ ] `bottom` behaves as expected
@@ -240,7 +254,11 @@ Notes: __________
 - [ ] `overlay` behaves as expected
 - [ ] Invalid layer value falls back to `bottom`
 
-Notes: __________
+Record:
+
+- Outputs tested: __________
+- Result: Pass / Partial / Fail
+- Notes: __________
 
 ### 3. Exclusive zone and focus behavior
 
@@ -249,16 +267,53 @@ Notes: __________
 - [ ] `keyboard_interactivity = "none"` avoids focus capture
 - [ ] Non-click-through mode behaves as expected if tested
 
-Notes: __________
+Record:
+
+- Outputs tested: __________
+- Result: Pass / Partial / Fail
+- Notes: __________
 
 ### 4. Fullscreen expectations
 
 Current expectation: no compositor-specific fullscreen integration is implemented for Sway yet.
 
 - [ ] Confirm that fullscreen does not use Hyprland-specific hide behavior
+- [ ] Confirm whether the frame remains visible, is obscured naturally, or shows another compositor-specific behavior
 - [ ] Record whether current generic layer behavior is acceptable or needs future compositor support
 
-Notes: __________
+Record:
+
+- Outputs tested: __________
+- Result: Pass / Partial / Fail
+- Notes: __________
+
+### 5. Output lifecycle and reload behavior
+
+- [ ] Per-monitor disable on reload removes the corresponding surface
+- [ ] Re-enabling that monitor recreates the surface
+- [ ] Hotplug add/remove behaves correctly if hardware allows
+- [ ] Resolution or arrangement changes redraw the correct output
+- [ ] No duplicated surfaces or stale geometry appear
+
+Record:
+
+- Outputs tested: __________
+- Result: Pass / Partial / Fail
+- Notes: __________
+
+### 6. Scale and transform behavior
+
+- [ ] Scale changes keep the frame visible
+- [ ] Scale changes keep the frame aligned to the output edges
+- [ ] Transform changes keep the frame visible
+- [ ] Quarter-turn transforms keep dimensions correct if tested
+- [ ] No stale content remains after scale or transform changes
+
+Record:
+
+- Outputs tested: __________
+- Result: Pass / Partial / Fail
+- Notes: __________
 
 ## Operator Procedure
 
@@ -278,9 +333,18 @@ RUST_LOG=info cargo run
 
 Suggested inspection commands during the pass:
 
+For Hyprland:
+
 ```bash
 hyprctl layers
 hyprctl monitors all
+```
+
+For Sway:
+
+```bash
+swaymsg -t get_outputs
+swaymsg -t get_tree
 ```
 
 For each failed step, record:
@@ -294,7 +358,7 @@ For each failed step, record:
 
 - Current state: Ready to run manually
 - Reason: the code and docs baseline are in place; remaining work is live compositor validation.
-- Resume after: completing the deferred hotplug, resolution-change, scale, and transform checks.
+- Resume after: completing the next compositor-specific pass, with Sway as the current target.
 
 ## Results Summary
 
@@ -302,7 +366,7 @@ For each failed step, record:
 
 - Pass / Partial / Fail: Pass
 - Main findings: protocol verification confirmed per-output layer-surface creation, overlay requests, `bottom` fallback, namespace fallback, and input-region request paths; user also confirmed click-through, fullscreen hide/show, exclusive-zone behavior, namespace visibility, and per-monitor reload disable/re-enable in a live session.
-- Follow-up issues: live hotplug, resolution-change, scale verification, transform verification, and broader compositor coverage still remain.
+- Follow-up issues: broader compositor coverage still remains, with Sway as the next verification target.
 
 ### Sway
 
@@ -318,3 +382,152 @@ After running this checklist:
 - Mark verified items in the Core Shell and Layering Behavior section
 - Add compositor-specific findings to the notes fields
 - Move any discovered problems into `Needs bugfix`, `Needs verification`, or `Needs refactor` as appropriate
+
+
+## Performance Checklist
+
+### Scope
+
+Use this pass to record runtime measurements after the new debug redraw instrumentation landed in `src/state.rs`.
+
+Goals:
+
+- Measure idle CPU behavior with rustbar running but visually stable
+- Measure redraw cost from the debug redraw logs
+- Compare single-output and multi-output redraw cost
+- Record whether patterns materially change redraw time
+
+Out of scope:
+
+- Deep profiling with external profilers
+- Image-quality review
+- Compositor correctness checks already covered elsewhere in this checklist
+
+### Preconditions
+
+- Build succeeds
+- A visible test config exists
+- `RUST_LOG=debug` is available in the launch command
+- At least one config variant exists for:
+  - solid fill only
+  - gradient fill
+  - pattern-enabled bezel
+- A CPU observation tool is available, for example `top`, `htop`, or `pidstat`
+
+### Suggested Launch
+
+```bash
+RUST_LOG=debug cargo run
+```
+
+Or use the helper script:
+
+```bash
+scripts/perf_capture.sh
+```
+
+Example redraw log line:
+
+```text
+redraw output=DP-1 surface_id=123 logical=1920x1080 buffer=3840x2160 scale=2 transform=Normal transparent=false render_ms=3.421 upload_ms=1.287 committed=true
+```
+
+Use `render_ms` for draw cost, `upload_ms` for SHM/buffer cost, and compare `logical` versus `buffer` to understand scale or transform effects.
+
+### 1. Idle CPU Baseline
+
+1. Start rustbar with a stable config and no active monitor/layout changes.
+2. Let the session sit idle for at least 30 seconds.
+3. Observe rustbar CPU usage using your preferred tool.
+4. Record whether CPU returns near idle after startup settles.
+
+Checks:
+
+- [ ] Idle CPU observed after startup settles
+- [x] No repeated redraw spam appears in the debug logs while visually idle
+- [x] No unexpected fullscreen polling or watcher churn is visible in the logs
+
+Record:
+
+- Compositor: Hyprland 0.49.0
+- Outputs active: DP-1, HDMI-A-1
+- CPU tool used: `scripts/perf_capture.sh` (`ps` sampling once per second)
+- Idle CPU result: Fail
+- Notes: CPU never returned near idle during a ~6 minute dev-profile capture. Sampled CPU ranged from 26.10% to 99.00%, averaging 56.33%, even though only 8 redraw timing lines were recorded.
+
+### 2. Single-Output Redraw Cost
+
+1. Use one enabled output if possible.
+2. Start with a simple solid-fill config.
+3. Trigger redraws by saving config changes such as `opacity`, `color`, or `gradient.mode`.
+4. Record the `render_ms` and `upload_ms` values from the debug logs.
+
+Checks:
+
+- [ ] Solid-fill redraw timings recorded
+- [ ] Gradient redraw timings recorded
+- [ ] Redraw logs include logical size, buffer size, scale, and transform
+
+Record:
+
+- Compositor: Not isolated yet
+- Output tested: Not isolated yet
+- Solid-fill redraw range: Not measured separately in this capture
+- Gradient redraw range: Not measured separately in this capture
+- Notes: The first captured run stayed on a two-output Hyprland session, so this section remains open.
+
+### 3. Pattern-Enabled Redraw Cost
+
+1. Enable a representative SVG pattern config.
+2. Trigger redraws with pattern-related config changes such as spacing, scale, or color.
+3. Compare the resulting `render_ms` and `upload_ms` values against the solid-fill baseline.
+
+Checks:
+
+- [ ] Pattern redraw timings recorded
+- [ ] Relative cost versus solid fill noted
+- [ ] No unexpected redraw storm occurs during pattern reloads
+
+Record:
+
+- Pattern asset: Not measured yet
+- Pattern mode: Not measured yet
+- Pattern redraw range: Not measured yet
+- Relative cost versus solid fill: Not measured yet
+- Notes: The first capture established a baseline problem before pattern-specific benchmarking.
+
+### 4. Multi-Output Redraw Cost
+
+1. Run rustbar on multiple outputs.
+2. Trigger a redraw that affects all outputs, such as a global config save.
+3. Record per-output timing lines from the debug logs.
+4. Note whether any output is materially slower due to scale, transform, or pattern usage.
+
+Checks:
+
+- [x] Per-output redraw timings recorded
+- [x] Mixed scale or transform outputs noted if present
+- [x] Slowest output identified if timings differ materially
+
+Record:
+
+- Compositor: Hyprland 0.49.0
+- Outputs tested: DP-1, HDMI-A-1
+- Per-output redraw summary: 8 redraws total across two 1920x1080 outputs at scale 1 / Normal transform. `render_ms` ranged from 11643.795 to 12651.987 and `upload_ms` ranged from 1.135 to 9.032.
+- Slowest output: DP-1 (`render_ms=12651.987`)
+- Notes: The problem appears render-bound rather than upload-bound. Both outputs showed multi-second render time despite simple scale/transform settings.
+
+### 5. Performance Summary
+
+After running the pass, summarize:
+
+- [x] Idle CPU result written back into the roadmap
+- [x] Redraw cost notes written back into the roadmap
+- [x] Any obvious regressions or hotspots called out
+- [x] Any follow-up instrumentation needs identified
+
+Summary fields:
+
+- Overall result: Fail
+- Key findings: The first Hyprland capture produced only 8 redraws, but each redraw took 11.6s to 12.7s of reported render time while upload remained 1.1ms to 9.0ms. CPU also never settled near idle during the ~6 minute run, averaging 56.33% and bottoming out only around 26.10%.
+- Follow-up actions: Treat runtime performance as a bugfix priority, investigate why render time is measured in multi-second spans, and repeat single-output and pattern-specific benchmarks after the baseline issue is fixed.

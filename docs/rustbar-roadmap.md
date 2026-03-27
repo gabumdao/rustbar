@@ -35,10 +35,10 @@ This document is the canonical reference for the current project state as verifi
 
 ### What is missing
 
-- No gradients, texture layer, composition stack, presets implementation, IPC commands, animation, theme integration, or visual tooling.
+- No gradients, texture layer, composition stack, IPC commands, animation, theme integration, or visual tooling. User-defined presets are now implemented, but shipped preset packs do not exist yet.
 - No explicit validation/error-reporting layer for invalid config beyond parse failure and warning logs.
 - No integration or compositor-level tests for multi-monitor, hotplug, fullscreen, click-through, or idle behavior.
-- No documented release plan, support matrix, or production-readiness criteria.
+- No documented release plan or production-readiness criteria. A basic compositor support matrix is now documented, but broader coverage is still incomplete.
 
 ## 3. Status Legend
 
@@ -67,9 +67,9 @@ Legend for tracking columns:
 | Correct default layer behavior | Implemented | [x] | [x] | [x] | [ ] | Default layer is `bottom`, and user verification confirmed expected Hyprland behavior. | Verify behavior on Sway. |
 | Configurable `background` / `bottom` / `top` / `overlay` | Implemented | [x] | [x] | [x] | [ ] | String mapping exists with `bottom` fallback for invalid values and now has unit coverage. | Add invalid-value validation and examples. |
 | Stable namespace handling | Implemented | [x] | [x] | [x] | [ ] | Namespace is configurable, blank values fall back to `rustbar-frame`, protocol tracing confirmed value selection, and user confirmed visibility in Hyprland tooling. | Verify behavior on additional compositors. |
-| Compatibility with Hyprland inspection tools | Implemented, Needs documentation | [x] | [x] | [ ] | [ ] | User confirmed namespace visibility in Hyprland tooling during manual verification. | Add specific tooling notes to docs if useful. |
+| Compatibility with Hyprland inspection tools | Implemented | [x] | [x] | [x] | [ ] | User confirmed namespace visibility in Hyprland tooling during manual verification, and the configuration guide now mentions that verified behavior. | Extend verification to at least one non-Hyprland compositor. |
 | Click-through behavior | Implemented | [x] | [x] | [x] | [ ] | Protocol tracing confirmed the request path and user verified the visual behavior on Hyprland. | Verify behavior on additional compositors. |
-| Focus avoidance | Partially implemented, Needs documentation | [x] | [x] | [ ] | [ ] | Default keyboard interactivity is `none`, fullscreen-hidden surfaces are forced non-interactive, and no focus issues were reported in the Hyprland pass. | Document current verified behavior and compositor limits. |
+| Focus avoidance | Partially implemented | [x] | [x] | [x] | [ ] | Default keyboard interactivity is `none`, fullscreen-hidden surfaces are forced non-interactive, no focus issues were reported in the Hyprland pass, and the config guide now documents the verified behavior and compositor limits. | Extend verification beyond Hyprland. |
 | Exclusive zone handling | Implemented | [x] | [x] | [x] | [ ] | Config value is applied to layer surfaces, fullscreen-hidden surfaces clear the exclusive zone, and user verified the behavior on Hyprland. | Verify behavior on additional compositors. |
 | Fullscreen interaction behavior | Partially implemented | [x] | [x] | [x] | [ ] | Hyprland-only path hides the frame by rendering a transparent buffer and clearing the exclusive zone on fullscreen outputs; user verified hide/show behavior live. | Extend behavior or verification beyond Hyprland. |
 
@@ -92,62 +92,67 @@ Checklist:
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
 | One logical surface per output | Implemented | [x] | [ ] | [x] | [ ] | `new_output` creates a dedicated surface per output, and `update_output` now avoids duplicate surface creation while reconciling delayed output metadata. | Add live verification notes for hotplug and late-arriving output metadata. |
 | Output-specific configuration overrides | Implemented | [x] | [ ] | [x] | [ ] | `for_monitor` merges global and monitor-specific settings. | Add tests for override edge cases. |
-| Monitor hotplug handling | Partially implemented | [x] | [ ] | [x] | [ ] | Output removal is handled; `update_output` now creates a surface when output info becomes available later and reapplies config/redraws on output changes. The config guide now documents the intended per-output lifecycle and current verification limits. | Test true hotplug add/remove events on a live compositor. |
-| Resolution changes | Partially implemented, Needs verification | [x] | [ ] | [ ] | [ ] | Layer configure still redraws on new size, and output updates now reconcile and refresh the affected surface. | Run real compositor tests and document guarantees. |
-| Output scale handling | Implemented, Needs verification | [x] | [x] | [x] | [ ] | Output scale is tracked per surface, `set_buffer_scale` is applied when supported, and buffers are rendered at scaled dimensions. | Verify live compositor behavior and document expectations. |
-| Rotation / transform handling | Implemented, Needs verification | [x] | [x] | [x] | [ ] | Output transform is tracked per surface, `set_buffer_transform` is applied when supported, and quarter-turn transforms swap buffer dimensions before rendering. | Verify live compositor behavior and document expectations. |
-| Stable behavior across multi-monitor sessions | Partially implemented, Needs verification | [x] | [ ] | [x] | [ ] | Design supports multiple outputs, and output updates now reconcile existing surfaces more safely. The docs now explain the current lifecycle model, but no integration coverage exists. | Add manual test matrix and regression checklist. |
+| Monitor hotplug handling | Implemented | [x] | [x] | [x] | [ ] | Output removal is handled; `update_output` now creates a surface when output info becomes available later and reapplies config/redraws on output changes. User verification on Hyprland confirmed hotplug add/remove behavior. | Extend verification to at least one non-Hyprland compositor. |
+| Resolution changes | Implemented | [x] | [x] | [x] | [ ] | Layer configure redraws on new size, output updates reconcile and refresh the affected surface, and the configuration guide now records the verified Hyprland behavior. | Extend verification to another compositor. |
+| Output scale handling | Implemented | [x] | [x] | [x] | [ ] | Output scale is tracked per surface, `set_buffer_scale` is applied when supported, buffers are rendered at scaled dimensions, and user verification on Hyprland confirmed the live behavior. | Extend verification to at least one non-Hyprland compositor. |
+| Rotation / transform handling | Implemented | [x] | [x] | [x] | [ ] | Output transform is tracked per surface, `set_buffer_transform` is applied when supported, quarter-turn transforms swap buffer dimensions before rendering, and user verification on Hyprland confirmed the live behavior. | Extend verification to at least one non-Hyprland compositor. |
+| Stable behavior across multi-monitor sessions | Implemented, Needs broader verification | [x] | [x] | [x] | [ ] | Design supports multiple outputs, output updates reconcile existing surfaces safely, and the Hyprland manual pass now covers hotplug, output changes, scale changes, and transform changes. | Extend the same verification pass to another compositor and add integration coverage later. |
 | Remove surfaces for monitors disabled by reload | Implemented | [x] | [x] | [x] | [ ] | `sync_outputs` now removes active surfaces whose monitor config is disabled before applying updates, and user verified disable/re-enable behavior on reload. | Add broader compositor verification notes if behavior differs outside Hyprland. |
 
 Checklist:
 
 - [x] Verified per-output surface creation in code
-- [ ] Tested hotplug add/remove
-- [ ] Tested resolution changes
-- [ ] Tested scale-factor changes with output-aware buffer scaling
-- [ ] Tested output rotation / transform changes with output-aware buffer transforms
+- [x] Tested hotplug add/remove
+- [x] Tested resolution changes
+- [x] Tested scale-factor changes with output-aware buffer scaling
+- [x] Tested output rotation / transform changes with output-aware buffer transforms
 - [x] Documented monitor override precedence
 
 ### Frame Geometry and Layout
 
 | Feature | Status | Code | Tested | Docs | Ready | Notes | Next action |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
-| Frame thickness | Implemented | [x] | [x] | [x] | [ ] | Global and per-side thickness are supported. | Add docs for zero-thickness side behavior. |
+| Frame thickness | Implemented | [x] | [x] | [x] | [ ] | Global and per-side thickness are supported, and the config guide now documents zero-thickness side behavior. | Add visual examples later. |
 | Rounded inner corners | Implemented | [x] | [x] | [x] | [ ] | Inner transparent cutout uses rounded rectangle path. | Add screenshots/examples later. |
-| Outer boundary handling | Implemented, Needs documentation | [x] | [x] | [ ] | [ ] | Outer edge remains sharp; highlight stroke uses sharp corners. | Document current outer-corner model explicitly. |
+| Outer boundary handling | Implemented | [x] | [x] | [x] | [ ] | Outer edge remains sharp, highlight stroke uses sharp corners, and the config guide now states that only the inner cutout is rounded. | Add visual examples later. |
 | Bezel ring clipping | Implemented, Needs verification | [x] | [x] | [ ] | [ ] | Pattern clipping is present; bezel rendering itself relies on carve-out path. | Add visual regression coverage. |
-| Per-side activation | Partially implemented | [x] | [ ] | [ ] | [ ] | Thickness can be set to `0` per side, but there is no explicit side enable flag for the base frame. | Document zero-thickness strategy or add explicit side toggles. |
+| Per-side activation | Implemented | [x] | [x] | [x] | [ ] | Base-frame side toggles now exist through `frame_sides`, and zero-thickness side disabling remains supported for compatibility. | Add visual examples later. |
 | Corner padding | Partially implemented | [x] | [x] | [x] | [ ] | Only exists for pattern corner avoidance, not for core frame geometry. | Clarify scope in docs. |
-| Offsets and margins | Not implemented | [ ] | [ ] | [ ] | [ ] | No surface margin or frame inset/outset controls found. | Add layout model if needed. |
+| Offsets and margins | Implemented | [x] | [x] | [x] | [ ] | The frame outer boundary can now be inset with `margin` / `margin_*` and translated with `offset_x` / `offset_y`; geometry and pattern clipping follow the adjusted frame bounds. | Add visual examples and mixed-output verification later. |
 | Geometry consistency across outputs | Needs verification | [x] | [ ] | [ ] | [ ] | Shared renderer is deterministic, but scale/transform gaps remain. | Test across mixed-monitor setups. |
 
 Checklist:
 
 - [x] Verified per-side thickness logic in code
+- [x] Tested explicit base-frame side toggles
 - [x] Verified rounded inner cutout logic in code
 - [ ] Tested zero-thickness and extreme-radius edge cases visually
-- [ ] Documented current geometry constraints
+- [x] Documented current geometry constraints
 
 ### Base Rendering and Styling
 
 | Feature | Status | Code | Tested | Docs | Ready | Notes | Next action |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
 | Solid fill | Implemented | [x] | [x] | [x] | [x] | Base bezel fill is a solid color. | None. |
-| Opacity | Implemented | [x] | [x] | [x] | [ ] | Global opacity multiplies rendered colors. | Add docs for interaction with hex alpha. |
-| Gradients | Not implemented | [ ] | [ ] | [ ] | [ ] | No gradient code found. | Defer until core polish is complete. |
+| Opacity | Implemented | [x] | [x] | [x] | [ ] | Global opacity multiplies rendered alpha, including optional `#RRGGBBAA` color alpha and gradient stop alpha; regression coverage now checks both parsing and rendered output. | Add visual examples later. |
+| Gradients | Implemented | [x] | [x] | [x] | [ ] | Linear bezel gradients now exist through the `gradient` config block with vertical, horizontal, and diagonal directions. | Add visual examples and compositor-side screenshots later. |
 | Inner shadow | Implemented | [x] | [x] | [x] | [ ] | Separate inner-shadow pass supports falloff and softness. | Add examples and visual tests. |
 | Texture support | Not implemented | [ ] | [ ] | [ ] | [ ] | No non-SVG texture or bitmap layer support. | Keep as post-1.0 enhancement. |
 | Pattern layer support | Implemented | [x] | [x] | [x] | [ ] | SVG motif stamping is integrated. | Improve docs and runtime validation. |
-| Rendering quality | Partially implemented | [x] | [ ] | [ ] | [ ] | Anti-aliasing and bicubic resampling are used; no profiling or image-quality baseline exists. | Add screenshot regression or benchmark process. |
-| Clipping correctness | Partially implemented, Needs verification | [x] | [x] | [x] | [ ] | Pattern clip mask exists; broader corner/edge correctness is not validated across many shapes. | Add targeted tests and visual fixtures. |
-| Anti-aliasing quality | Partially implemented, Needs verification | [x] | [ ] | [ ] | [ ] | Anti-aliasing is enabled in major passes, but no tuning or validation exists. | Evaluate on fractional scaling and thin geometry. |
+| Rendering quality | Partially implemented | [x] | [x] | [ ] | [ ] | Anti-aliasing and bicubic resampling are used, and regression coverage now checks rounded-edge partial-alpha behavior, but there is still no profiling or broader image-quality baseline. | Add screenshot regression or benchmark process. |
+| Clipping correctness | Partially implemented | [x] | [x] | [x] | [ ] | Pattern clip masking now has regression coverage for inner-cutout leaks and outer-boundary leaks when margins inset the frame, but broader visual validation across more shapes is still missing. | Add visual fixtures and compositor screenshots later. |
+| Anti-aliasing quality | Partially implemented | [x] | [x] | [x] | [ ] | Anti-aliasing is enabled in major passes, and regression coverage now verifies partial-alpha pixels on the rounded inner cutout edge, but there is still no broader visual tuning baseline. | Evaluate on fractional scaling and thin geometry. |
 
 Checklist:
 
 - [x] Verified fill, highlight, bezel shadow, and inner shadow code paths
+- [x] Tested linear gradient fill rendering
 - [x] Verified pattern rendering path with tests
+- [x] Tested clip masking against inner-cutout and outer-boundary leaks
+- [x] Tested rounded-edge anti-aliasing on the inner cutout
+- [x] Tested opacity interaction with hex alpha
 - [ ] Benchmarked redraw cost
-- [ ] Documented rendering limitations
+- [x] Documented current gradient behavior and limitations
 
 ### SVG Pattern System
 
@@ -156,7 +161,7 @@ Checklist:
 | Asset loading | Implemented | [x] | [x] | [x] | [ ] | Reads SVG file, parses with `usvg`, renders via `resvg`. | Add better user-facing errors. |
 | Default SVG directory handling | Implemented | [x] | [x] | [x] | [ ] | Resolves under `XDG_CONFIG_HOME/rustbar/svg` and `~/.config/rustbar/svg`. | Add examples and docs for include-based config layouts. |
 | Relative path resolution from `~/.config/rustbar/svg` | Implemented | [x] | [x] | [x] | [ ] | Explicit resolver covers XDG and home config directories. | None. |
-| Absolute path handling | Implemented | [x] | [ ] | [x] | [ ] | Absolute paths are accepted directly. | Add tests. |
+| Absolute path handling | Implemented | [x] | [ ] | [x] | [ ] | Absolute paths are accepted directly and are now documented explicitly in the configuration guide. | Add tests. |
 | Repetition logic | Implemented | [x] | [x] | [x] | [ ] | Repeat, single, scatter/random, directional, checker, diamond, and diagonal families exist. | Add per-mode examples. |
 | Spacing | Implemented | [x] | [x] | [x] | [ ] | `spacing` and `offset` are used in layout. | None. |
 | Offset | Implemented | [x] | [x] | [x] | [ ] | Shared offset logic exists across modes. | None. |
@@ -175,7 +180,7 @@ Checklist:
 - [x] Verified SVG path resolution in code and tests
 - [x] Verified pattern render path in tests
 - [ ] Tested all placement modes visually
-- [ ] Documented all mode semantics with examples
+- [x] Documented all mode semantics with examples
 - [x] Added SVG caching in code and regression coverage
 - [x] Documented cache behavior and invalid-asset UX notes
 
@@ -186,11 +191,11 @@ Checklist:
 | TOML configuration support | Implemented | [x] | [x] | [x] | [x] | Core config loading is present. | None. |
 | Include support | Implemented | [x] | [x] | [x] | [ ] | `include` and variable expansion work and are now documented in the configuration guide. | Add more examples if needed. |
 | Live reload / config reload | Implemented | [x] | [ ] | [x] | [ ] | File watcher reloads all loaded config files. | Add manual and automated reload verification. |
-| Validation of invalid config | Partially implemented | [x] | [x] | [x] | [ ] | Parse errors still skip reload, but load-time validation warnings now flag silent fallback cases such as unsupported layer values, unsupported pattern settings, missing pattern sources, invalid opacity ranges, and unimplemented presets. | Consider stronger schema validation later. |
+| Validation of invalid config | Partially implemented | [x] | [x] | [x] | [ ] | Parse errors still skip reload, but load-time validation warnings now flag silent fallback cases such as unsupported layer values, unsupported pattern settings, missing pattern sources, invalid opacity ranges, and unknown or invalid preset definitions. | Consider stronger schema validation later. |
 | Fallback behavior | Implemented | [x] | [x] | [x] | [ ] | Config path, namespace fallback, and enum fallbacks are documented. | Add runtime verification notes where useful. |
 | Default values | Implemented | [x] | [x] | [x] | [ ] | Defaults are declared in config structs. | Sync docs tightly to code. |
-| Debug logging | Partially implemented | [x] | [ ] | [x] | [ ] | `env_logger` is initialized; warning and info-level guidance is now documented, but logging remains simple. | Expand categories only if runtime debugging needs it. |
-| Readable errors | Partially implemented | [x] | [x] | [x] | [ ] | Reload failures now explicitly state that rustbar is keeping the previous config, and config validation warnings are more specific, but errors are still mostly log-only. | Improve startup/reload summaries if current logs prove insufficient. |
+| Debug logging | Partially implemented | [x] | [x] | [x] | [ ] | `env_logger` is initialized, `RUST_LOG=debug` exposes per-surface redraw timing with output name, logical size, buffer size, scale, transform, upload timing, and commit status, and the repo now includes `scripts/perf_capture.sh` to capture those logs plus CPU samples into `output.log`. | Expand categories only if runtime debugging needs it. |
+| Readable errors | Partially implemented | [x] | [x] | [x] | [ ] | Reload failures now name the resolved config path and state that rustbar is keeping the previous config, startup failures now report missing Wayland prerequisites more clearly, and config validation warnings are more specific. Errors are still primarily log-based. | Improve user-facing summaries further only if the current logs prove insufficient. |
 | Documentation of configuration schema | Partially implemented | [x] | [ ] | [ ] | [ ] | Existing docs are incomplete and slightly ahead of or misaligned with implementation details. | Update docs after roadmap is merged. |
 
 Checklist:
@@ -205,26 +210,31 @@ Checklist:
 
 | Feature | Status | Code | Tested | Docs | Ready | Notes | Next action |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
-| Idle CPU behavior | Needs verification | [ ] | [ ] | [ ] | [ ] | Event loop is passive, but Hyprland listener reconnect loop and file watcher behavior are not measured. | Measure idle CPU on target compositors. |
-| Redraw behavior | Partially implemented | [x] | [ ] | [ ] | [ ] | Redraw happens on configure and config reload; no frame callback loop is used. | Document redraw triggers and avoid unnecessary rerenders. |
+| Idle CPU behavior | Needs bugfix | [x] | [x] | [x] | [ ] | First Hyprland capture on two 1920x1080 outputs never settled near idle in a dev-profile run: sampled CPU ranged from 26.10% to 99.00% with a 56.33% average over roughly 6 minutes. | Investigate the hot path, then repeat idle measurement in both dev and release builds. |
+| Redraw behavior | Needs bugfix | [x] | [x] | [x] | [ ] | Redraw happens on configure and config reload; no frame callback loop is used. The first Hyprland performance capture recorded only 8 redraws, but each redraw reported 11643.795ms to 12651.987ms of render time while upload stayed between 1.135ms and 9.032ms, which points to a severe render-side problem. | Investigate the multi-second render spans before collecting more comparative benchmarks. |
 | Caching strategy | Partially implemented | [x] | [x] | [ ] | [ ] | SHM slot pools are reused per surface, and SVG trees are now cached by path plus mtime, but there is still no broader render/cache model. | Document current cache behavior and consider higher-level render caches later. |
 | Geometry recomputation rules | Partially implemented | [x] | [ ] | [ ] | [ ] | Geometry is recomputed on draw/configure, and scale/transform changes now feed the output-aware redraw path, but live guarantees are not verified yet. | Define explicit recomputation triggers and verify compositor behavior. |
-| Multi-monitor performance | Needs verification | [x] | [ ] | [ ] | [ ] | One pixmap per surface redraw; no benchmark data. | Measure redraw and memory cost across multiple outputs. |
-| Startup behavior | Partially implemented | [x] | [ ] | [ ] | [ ] | Startup path is straightforward but relies on `expect`/`unwrap` for critical failures. | Improve startup diagnostics and document prerequisites. |
+| Multi-monitor performance | Needs bugfix | [x] | [x] | [x] | [ ] | First Hyprland multi-output capture covered DP-1 and HDMI-A-1 at 1920x1080 scale 1 / Normal transform. Both outputs showed multi-second render times, with DP-1 peaking at 12651.987ms. | Fix the baseline render-cost issue, then repeat comparative multi-output measurements. |
+| Startup behavior | Partially implemented | [x] | [ ] | [x] | [ ] | Startup now returns clearer fatal errors for missing Wayland prerequisites and logs which config path was loaded, but it still depends on runtime/manual validation rather than dedicated startup tests. | Add startup-focused tests only if this path keeps changing. |
 | Runtime stability | Partially implemented | [x] | [x] | [ ] | [ ] | Unit tests pass, but runtime integration coverage is minimal. | Add compositor smoke tests and manual QA checklist. |
 
 Checklist:
 
 - [x] Verified slot-pool reuse in code
-- [ ] Measured idle CPU
+- [x] Measured idle CPU
 - [ ] Measured redraw cost with patterns enabled
+- [x] Added debug redraw timing instrumentation
+- [x] Added a performance measurement checklist
+- [x] Documented redraw timing log fields
+- [x] Added a performance capture script
+- [x] Captured first Hyprland performance baseline
 - [ ] Documented performance expectations
 
 ### Future-Facing Features
 
 | Feature | Status | Notes | Next action |
 | :--- | :--- | :--- | :--- |
-| Presets | Partially implemented, Needs refactor | `preset` key exists in config schema but no preset application logic is implemented. | Either remove from public docs for now or implement preset resolution. |
+| Presets | Implemented | User-defined presets are resolved from top-level `[presets.<name>]` tables and can be applied globally or per monitor before explicit overrides. Shipped preset libraries and import/export still do not exist. | Add built-in preset packs only if they prove worth the complexity. |
 | CRT mode | Not implemented | Mentioned conceptually only. | Treat as preset/theme work after 1.0. |
 | Old TV bezel mode | Not implemented | No dedicated mode found. | Defer as preset pack. |
 | Texture and pattern composition | Not implemented | Only SVG motif layer exists. | Design rendering stack first. |
@@ -248,26 +258,24 @@ Checklist:
 ### High-priority gaps
 
 - README and configuration docs must be kept aligned with the current Hyprland-specific fullscreen hide behavior and its verification limits.
-- Live compositor verification notes for hotplug, resolution changes, scale changes, and transform changes still need to be recorded after the deferred manual pass.
-- No document explains pattern mode semantics with examples or visual expectations.
+- Equivalent compositor-specific verification notes still need to be added for Sway and any other non-Hyprland target.
+- The configuration guide now includes a screenshot/comparison checklist for future pattern captures, but the actual screenshots are still missing.
 - Visual compositor verification notes still need to be added once the remaining manual checks are run.
 
 ### Implemented but under-documented
 
-- Detailed compositor-specific results for hotplug, resolution changes, scale changes, and transform changes
-- Click-through implementation details and compositor caveats beyond code-level behavior
-- Pattern seed and deterministic jitter
-- Blend modes
-- `prevent_overlap` semantics
-- Pattern clipping behavior
-- Absolute SVG path handling
+- Detailed compositor-specific results for Sway and any other non-Hyprland verification target
+- Click-through implementation details and compositor caveats beyond the currently documented Hyprland behavior
+- Pattern mode semantics still lack captured screenshots
+- Remaining pattern-system screenshot capture work
+- Any additional non-default pattern workflows that still need example configs
 
 ### Likely misleading or incomplete docs
 
 - Fullscreen behavior wording
 - Production-readiness implied by feature lists
 - Live compositor verification for scale and transform behavior is still missing
-- Lack of mention that `preset` exists in schema but is not applied
+- Built-in preset packs still do not exist even though user-defined presets are now supported
 
 ## 6. Development Roadmap
 
@@ -356,14 +364,14 @@ Goal: reduce config friction and make repeatable themes practical.
 
 Priority features:
 
-- Implement real preset application logic or remove `preset` from schema until ready
-- Add shipped presets such as CRT-inspired, minimal, and ornamental styles
+- Validate whether built-in preset packs are still desirable now that user-defined presets exist
+- Decide later whether to ship preset packs such as CRT-inspired, minimal, and ornamental styles
 - Consider texture/pattern composition layers
 - Consider dedicated corner motifs
 
 Dependencies / blockers:
 
-- Requires a clear style/preset data model
+- Preset merge order now exists in code; future work would be about shipping preset content, not inventing the model
 
 ### v2.0: Advanced Runtime and Ecosystem Features
 
@@ -388,22 +396,22 @@ Postpone until:
 ## 7. Open Questions and Technical Uncertainties
 
 - What is the intended fullscreen product behavior: hide entirely, switch layer, disable input only, or user-selectable policy?
-- Should base-frame side enablement remain thickness-driven, or should explicit side booleans be added?
-- Is `preset` meant to be a built-in named style system, an importable theme file, or just a future alias layer?
+- Should rustbar keep supporting both `frame_sides` and zero-thickness side disabling long-term, or eventually recommend one canonical style?
+- Should presets remain purely user-defined, or should rustbar eventually ship named preset packs?
 - Should non-Hyprland fullscreen handling exist, and if so, how should compositor support be detected?
 - Should SVG patterns be cached as parsed trees, rasterized motifs, or both?
 - How should scale-factor and transform changes alter geometry: logical-pixel preservation, physical-pixel preservation, or configurable behavior?
 
 ## 8. Recommended Immediate Next Steps
 
-1. Return to deferred hotplug, resolution-change, scale, and transform verification on a live compositor.
-2. Record compositor-specific results from that pass directly back into this roadmap and the checklist.
-3. Fix any runtime issues found during that later verification before expanding the feature surface further.
-4. Use the documented output lifecycle model and the operator-ready checklist as the reference baseline when the deferred compositor verification pass resumes.
+1. Run the prepared Sway verification pass, which now covers shell behavior, fullscreen expectations, output lifecycle, and scale/transform behavior.
+2. Extend the support matrix after the Sway pass so it captures verified behavior instead of expected behavior.
+3. Fix any compositor-specific runtime issues found during the next non-Hyprland verification pass before expanding the feature surface further.
+4. Keep geometry and output-lifecycle docs aligned with any behavior changes discovered during broader compositor coverage.
 
 ## 9. Active Verification Step
 
-The Hyprland shell/layer verification pass is complete for click-through, fullscreen hide/show, exclusive-zone behavior, namespace visibility in tooling, and per-monitor disable/re-enable on reload. The per-output lifecycle and monitor-override precedence are now documented in the configuration guide, and the deferred compositor pass now has an operator-ready checklist. The hotplug and output-change manual verification pass itself is still pending. As of 2026-03-26, proper output-aware scale-factor and transform handling is now implemented in code through `set_buffer_scale`, `set_buffer_transform`, and scaled buffer allocation. The next immediate work is to execute that manual pass and record the results back into this roadmap.
+The Hyprland shell/layer verification pass is now complete across shell behavior, per-monitor reload behavior, hotplug/output-change behavior, and output-aware scale/transform handling. The per-output lifecycle and monitor-override precedence are documented in the configuration guide, and the checklist now records the passing Hyprland results. The first Hyprland performance capture has also been recorded through `scripts/perf_capture.sh`, and it exposed a severe runtime issue: only 8 redraws were logged, but each redraw reported 11.6s to 12.7s of render time while CPU stayed far above idle. The next immediate runtime work is to investigate and fix that render-cost/CPU problem before expanding the benchmark matrix.
 
 ## 10. Contributor Tracking Checklist
 
@@ -411,23 +419,35 @@ The Hyprland shell/layer verification pass is complete for click-through, fullsc
 
 - [x] README corrected to match actual fullscreen behavior
 - [x] `docs/configuration.md` updated with include/variables support
-- [ ] `preset` marked as unimplemented or implemented properly
+- [x] `preset` marked as unimplemented or implemented properly
 - [x] Reload removes disabled monitor surfaces
 - [x] Fullscreen behavior changed from layer-downgrade workaround to transparent-hide behavior on Hyprland
-- [ ] Hotplug add/remove tested after `update_output` reconciliation fix
+- [x] Hotplug add/remove tested after `update_output` reconciliation fix
 - [x] Click-through tested on at least Hyprland
 - [x] Exclusive-zone behavior tested
 - [x] Scale-factor fallback replaced with proper output-aware handling
+- [x] Frame margins and offsets implemented
+- [x] Explicit base-frame side toggles implemented
 - [x] Transform/rotation fallback replaced with proper output-aware handling
 - [x] SVG caching implemented
 - [x] Invalid-config diagnostics improved
+- [x] Startup and reload diagnostics improved
+- [x] Linear bezel gradients implemented
+- [x] Added clipping regression coverage for pattern masking
+- [x] Added anti-aliasing regression coverage for the rounded inner cutout
+- [x] Added opacity and hex-alpha regression coverage
+- [x] Added debug redraw timing instrumentation
+- [x] Added a performance capture script
+- [ ] Investigate severe render-time / CPU issue from first performance capture
+- [x] Added opacity and hex-alpha regression coverage
+- [x] Added anti-aliasing regression coverage for the rounded inner cutout
 
 ### Validation tasks
 
 - [x] Unit tests currently pass with `cargo test`
 - [x] Manual QA checklist added to repository
 - [ ] Visual regression strategy defined
-- [ ] Multi-compositor support matrix documented
+- [x] Multi-compositor support matrix documented
 
 ### Documentation tasks
 

@@ -1,3 +1,4 @@
+use log::debug;
 use smithay_client_toolkit::{
     compositor::CompositorState,
     output::OutputState,
@@ -11,7 +12,10 @@ use smithay_client_toolkit::{
         slot::{Buffer, SlotPool},
     },
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Instant,
+};
 use wayland_client::{
     Connection, Proxy, QueueHandle,
     protocol::{wl_output, wl_shm},
@@ -110,23 +114,27 @@ impl State {
             self.apply_surface_output_state(layer, requested_scale, requested_transform);
         let (width, height) =
             scaled_buffer_dimensions(logical_width, logical_height, scale, transform);
+        let output_name = self
+            .output_names
+            .get(&surface_id)
+            .cloned()
+            .unwrap_or_else(|| "default".to_string());
 
+        let render_start = Instant::now();
         let pixels = if transparent {
             vec![0; (width * height * 4) as usize]
         } else {
-            let name = self
-                .output_names
-                .get(&surface_id)
-                .map(|s| s.as_str())
-                .unwrap_or("default");
-            let m_config = self.config.for_monitor(name);
+            let m_config = self.config.for_monitor(&output_name);
             if m_config.enabled.unwrap_or(true) {
                 crate::render::draw_frame(width, height, &m_config)
             } else {
                 vec![0; (width * height * 4) as usize]
             }
         };
+        let render_elapsed = render_start.elapsed();
 
+        let upload_start = Instant::now();
+        let mut committed = false;
         if let Some(shm) = self.shm.as_mut() {
             let size = (width * height * 4) as usize;
             let (pool, active_buf) = self.pools.entry(surface_id).or_insert_with(|| {
@@ -150,9 +158,27 @@ impl State {
                         .damage_buffer(0, 0, width as i32, height as i32);
                     layer.wl_surface().commit();
                     *active_buf = Some(buffer);
+                    committed = true;
                 }
             }
         }
+        let upload_elapsed = upload_start.elapsed();
+
+        debug!(
+            "redraw output={} surface_id={} logical={}x{} buffer={}x{} scale={} transform={:?} transparent={} render_ms={:.3} upload_ms={:.3} committed={}",
+            output_name,
+            surface_id,
+            logical_width,
+            logical_height,
+            width,
+            height,
+            scale,
+            transform,
+            transparent,
+            render_elapsed.as_secs_f64() * 1000.0,
+            upload_elapsed.as_secs_f64() * 1000.0,
+            committed,
+        );
     }
 
     pub fn refresh_all(&mut self) {

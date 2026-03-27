@@ -1,4 +1,7 @@
-use crate::config::{MonitorConfig, MonitorPatternConfig, PatternConfig};
+use crate::config::{
+    MonitorConfig, MonitorFrameSidesConfig, MonitorGradientConfig, MonitorPatternConfig,
+    PatternConfig,
+};
 use log::warn;
 use std::{
     collections::HashMap,
@@ -8,8 +11,8 @@ use std::{
     time::SystemTime,
 };
 use tiny_skia::{
-    BlendMode, Color, FillRule, FilterQuality, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect,
-    Stroke, Transform,
+    BlendMode, Color, FillRule, FilterQuality, GradientStop, LinearGradient, Paint, Path,
+    PathBuilder, Pixmap, PixmapPaint, Point, Rect, SpreadMode, Stroke, Transform,
 };
 
 #[derive(Clone)]
@@ -259,7 +262,13 @@ fn draw_inner_shadow(
     );
 }
 
-fn draw_pattern(pixmap: &mut Pixmap, inner_rect: Rect, radius: f32, config: &MonitorPatternConfig) {
+fn draw_pattern(
+    pixmap: &mut Pixmap,
+    outer_rect: Rect,
+    inner_rect: Rect,
+    radius: f32,
+    config: &MonitorPatternConfig,
+) {
     if !config.enabled.unwrap_or(false) {
         return;
     }
@@ -280,10 +289,10 @@ fn draw_pattern(pixmap: &mut Pixmap, inner_rect: Rect, radius: f32, config: &Mon
     let corners_config = config.corners.clone().unwrap_or_default();
     let layout_config = config.layout.clone().unwrap_or_default();
 
-    let t_top = inner_rect.top() as f32;
-    let t_bottom = pixmap.height() as f32 - inner_rect.bottom();
-    let t_left = inner_rect.left() as f32;
-    let t_right = pixmap.width() as f32 - inner_rect.right();
+    let t_top = inner_rect.top() - outer_rect.top();
+    let t_bottom = outer_rect.bottom() - inner_rect.bottom();
+    let t_left = inner_rect.left() - outer_rect.left();
+    let t_right = outer_rect.right() - inner_rect.right();
 
     let motif_size = tree.size();
     let base_extent = [
@@ -696,21 +705,17 @@ fn draw_pattern(pixmap: &mut Pixmap, inner_rect: Rect, radius: f32, config: &Mon
     if layout_config.clip_to_frame {
         if let Some(mut mask_pixmap) = Pixmap::new(pixmap.width(), pixmap.height()) {
             let mut pb = PathBuilder::new();
-            if let Some(full_rect) =
-                Rect::from_xywh(0.0, 0.0, pixmap.width() as f32, pixmap.height() as f32)
-            {
-                push_rounded_rect(&mut pb, full_rect, 0.0);
-                if let Some(full_path) = pb.finish() {
-                    let mut paint = Paint::default();
-                    paint.set_color(Color::WHITE);
-                    mask_pixmap.fill_path(
-                        &full_path,
-                        &paint,
-                        FillRule::Winding,
-                        Transform::identity(),
-                        None,
-                    );
-                }
+            push_rounded_rect(&mut pb, outer_rect, 0.0);
+            if let Some(full_path) = pb.finish() {
+                let mut paint = Paint::default();
+                paint.set_color(Color::WHITE);
+                mask_pixmap.fill_path(
+                    &full_path,
+                    &paint,
+                    FillRule::Winding,
+                    Transform::identity(),
+                    None,
+                );
             }
 
             if let Some(inner_path) = get_inner_path(inner_rect, radius) {
@@ -766,55 +771,218 @@ impl SimpleRng {
     }
 }
 
+struct FrameGeometry {
+    outer_rect: Rect,
+    inner_rect: Rect,
+    radius: f32,
+}
+
+fn gradient_points(rect: Rect, gradient: &MonitorGradientConfig) -> (Point, Point) {
+    match gradient
+        .mode
+        .as_deref()
+        .unwrap_or("vertical")
+        .to_lowercase()
+        .as_str()
+    {
+        "horizontal" => (
+            Point::from_xy(rect.left(), rect.top() + rect.height() / 2.0),
+            Point::from_xy(rect.right(), rect.top() + rect.height() / 2.0),
+        ),
+        "diagonal_down" => (
+            Point::from_xy(rect.left(), rect.top()),
+            Point::from_xy(rect.right(), rect.bottom()),
+        ),
+        "diagonal_up" => (
+            Point::from_xy(rect.left(), rect.bottom()),
+            Point::from_xy(rect.right(), rect.top()),
+        ),
+        _ => (
+            Point::from_xy(rect.left() + rect.width() / 2.0, rect.top()),
+            Point::from_xy(rect.left() + rect.width() / 2.0, rect.bottom()),
+        ),
+    }
+}
+
+fn fill_paint_for_frame(rect: Rect, config: &MonitorConfig) -> Paint<'static> {
+    let mut paint = Paint::default();
+    paint.anti_alias = true;
+
+    if let Some(gradient) = &config.gradient {
+        if gradient.enabled.unwrap_or(false) {
+            let (start, end) = gradient_points(rect, gradient);
+            let stops = vec![
+                GradientStop::new(0.0, parse_hex_color(
+                    gradient.start_color.as_deref().unwrap_or("#000000"),
+                    config.opacity.unwrap_or(1.0),
+                )),
+                GradientStop::new(1.0, parse_hex_color(
+                    gradient.end_color.as_deref().unwrap_or("#202020"),
+                    config.opacity.unwrap_or(1.0),
+                )),
+            ];
+            if let Some(shader) = LinearGradient::new(
+                start,
+                end,
+                stops,
+                SpreadMode::Pad,
+                Transform::identity(),
+            ) {
+                paint.shader = shader;
+                return paint;
+            }
+        }
+    }
+
+    paint.set_color(parse_hex_color(
+        config.color.as_deref().unwrap_or("#000000"),
+        config.opacity.unwrap_or(1.0),
+    ));
+    paint
+}
+
+fn compute_frame_geometry(width: u32, height: u32, config: &MonitorConfig) -> Option<FrameGeometry> {
+    let t_base = config.thickness.unwrap_or(16) as f32;
+    let frame_sides = config
+        .frame_sides
+        .clone()
+        .unwrap_or(MonitorFrameSidesConfig {
+            top: Some(true),
+            bottom: Some(true),
+            left: Some(true),
+            right: Some(true),
+        });
+    let t_top = if frame_sides.top.unwrap_or(true) {
+        config.thickness_top.map(|v| v as f32).unwrap_or(t_base)
+    } else {
+        0.0
+    };
+    let t_bottom = if frame_sides.bottom.unwrap_or(true) {
+        config.thickness_bottom.map(|v| v as f32).unwrap_or(t_base)
+    } else {
+        0.0
+    };
+    let t_left = if frame_sides.left.unwrap_or(true) {
+        config.thickness_left.map(|v| v as f32).unwrap_or(t_base)
+    } else {
+        0.0
+    };
+    let t_right = if frame_sides.right.unwrap_or(true) {
+        config.thickness_right.map(|v| v as f32).unwrap_or(t_base)
+    } else {
+        0.0
+    };
+
+    let m_base = config.margin.unwrap_or(0) as f32;
+    let m_top = config.margin_top.map(|v| v as f32).unwrap_or(m_base);
+    let m_bottom = config.margin_bottom.map(|v| v as f32).unwrap_or(m_base);
+    let m_left = config.margin_left.map(|v| v as f32).unwrap_or(m_base);
+    let m_right = config.margin_right.map(|v| v as f32).unwrap_or(m_base);
+
+    let offset_x = config.offset_x.unwrap_or(0) as f32;
+    let offset_y = config.offset_y.unwrap_or(0) as f32;
+    let radius = config.radius.unwrap_or(24) as f32;
+
+    let outer_rect = Rect::from_xywh(
+        m_left + offset_x,
+        m_top + offset_y,
+        width as f32 - m_left - m_right,
+        height as f32 - m_top - m_bottom,
+    )?;
+
+    let inner_rect = Rect::from_xywh(
+        outer_rect.left() + t_left,
+        outer_rect.top() + t_top,
+        outer_rect.width() - t_left - t_right,
+        outer_rect.height() - t_top - t_bottom,
+    )?;
+
+    if outer_rect.width() <= 0.0
+        || outer_rect.height() <= 0.0
+        || inner_rect.width() <= 0.0
+        || inner_rect.height() <= 0.0
+    {
+        return None;
+    }
+
+    Some(FrameGeometry {
+        outer_rect,
+        inner_rect,
+        radius,
+    })
+}
+
 pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
     let mut pixmap = Pixmap::new(width, height).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
 
-    let hex = config.color.as_deref().unwrap_or("#000000");
-    let color = parse_hex_color(hex, config.opacity.unwrap_or(1.0));
+    if let Some(geometry) = compute_frame_geometry(width, height, config) {
+        let paint = fill_paint_for_frame(geometry.outer_rect, config);
+        pixmap.fill_rect(geometry.outer_rect, &paint, Transform::identity(), None);
 
-    let mut paint = Paint::default();
-    paint.set_color(color);
-    paint.anti_alias = true;
+        let hw = config.highlight_width.unwrap_or(3.0);
+        if hw > 0.0 {
+            if let Some(highlight_rect) = Rect::from_xywh(
+                geometry.outer_rect.left() + hw / 2.0,
+                geometry.outer_rect.top() + hw / 2.0,
+                geometry.outer_rect.width() - hw,
+                geometry.outer_rect.height() - hw,
+            ) {
+                let mut pb = PathBuilder::new();
+                push_rounded_rect(&mut pb, highlight_rect, 0.0);
+                if let Some(path) = pb.finish() {
+                    let mut stroke_paint = Paint::default();
+                    stroke_paint.set_color(parse_hex_color(
+                        config.highlight_color.as_deref().unwrap_or("#FFFFFF22"),
+                        config.opacity.unwrap_or(1.0),
+                    ));
+                    stroke_paint.anti_alias = true;
+                    let mut stroke = Stroke::default();
+                    stroke.width = hw;
+                    pixmap.stroke_path(
+                        &path,
+                        &stroke_paint,
+                        &stroke,
+                        Transform::identity(),
+                        None,
+                    );
+                }
+            }
+        }
 
-    // 1. Fill entire background
-    if let Some(full_rect) = Rect::from_xywh(0.0, 0.0, width as f32, height as f32) {
-        pixmap.fill_rect(full_rect, &paint, Transform::identity(), None);
-    }
+        let sw = config.shadow_width.unwrap_or(12.0);
+        if sw > 0.0 {
+            let shadow_c = parse_hex_color(
+                config.shadow_color.as_deref().unwrap_or("#000000AA"),
+                config.opacity.unwrap_or(1.0),
+            );
+            let steps = sw.ceil() as usize;
+            if steps > 0 {
+                let total_a = shadow_c.alpha();
+                let a_step = 1.0 - (1.0 - total_a).powf(1.0 / steps as f32);
 
-    let t_base = config.thickness.unwrap_or(16) as f32;
-    let t_top = config.thickness_top.map(|v| v as f32).unwrap_or(t_base);
-    let t_bottom = config.thickness_bottom.map(|v| v as f32).unwrap_or(t_base);
-    let t_left = config.thickness_left.map(|v| v as f32).unwrap_or(t_base);
-    let t_right = config.thickness_right.map(|v| v as f32).unwrap_or(t_base);
-    let radius = config.radius.unwrap_or(24) as f32;
+                let step_color = tiny_skia::Color::from_rgba(
+                    shadow_c.red(),
+                    shadow_c.green(),
+                    shadow_c.blue(),
+                    a_step,
+                )
+                .unwrap_or_else(|| tiny_skia::Color::BLACK);
 
-    if let Some(inner_rect) = Rect::from_xywh(
-        t_left,
-        t_top,
-        width as f32 - t_left - t_right,
-        height as f32 - t_top - t_bottom,
-    ) {
-        if inner_rect.width() > 0.0 && inner_rect.height() > 0.0 {
-            // Shadow and highlight effects BEFORE carving the transparent hole.
-            // These are drawn ON the bezel.
+                let mut stroke_paint = Paint::default();
+                stroke_paint.set_color(step_color);
+                stroke_paint.anti_alias = true;
 
-            // A bezel highlight (drawn near the outer screen edge)
-            let hw = config.highlight_width.unwrap_or(3.0);
-            if hw > 0.0 {
-                if let Some(outer_rect) =
-                    Rect::from_xywh(hw / 2.0, hw / 2.0, width as f32 - hw, height as f32 - hw)
-                {
+                for i in 0..steps {
+                    let cur_sw = sw - (i as f32);
+                    if cur_sw <= 0.0 {
+                        continue;
+                    }
+
                     let mut pb = PathBuilder::new();
-                    push_rounded_rect(&mut pb, outer_rect, 0.0); // sharp outer corners
+                    push_rounded_rect(&mut pb, geometry.inner_rect, geometry.radius);
                     if let Some(path) = pb.finish() {
-                        let mut stroke_paint = Paint::default();
-                        stroke_paint.set_color(parse_hex_color(
-                            config.highlight_color.as_deref().unwrap_or("#FFFFFF22"),
-                            config.opacity.unwrap_or(1.0),
-                        ));
-                        stroke_paint.anti_alias = true;
                         let mut stroke = Stroke::default();
-                        stroke.width = hw;
+                        stroke.width = cur_sw * 2.0;
                         pixmap.stroke_path(
                             &path,
                             &stroke_paint,
@@ -825,85 +993,42 @@ pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
                     }
                 }
             }
+        }
 
-            // Inner Shadow (drawn on the inner edge of the bezel, fading outwards)
-            let sw = config.shadow_width.unwrap_or(12.0);
-            if sw > 0.0 {
-                let shadow_c = parse_hex_color(
-                    config.shadow_color.as_deref().unwrap_or("#000000AA"),
-                    config.opacity.unwrap_or(1.0),
+        if let Some(path) = get_inner_path(geometry.inner_rect, geometry.radius) {
+            let mut clear_paint = Paint::default();
+            clear_paint.blend_mode = BlendMode::Clear;
+            clear_paint.anti_alias = true;
+            pixmap.fill_path(
+                &path,
+                &clear_paint,
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+
+        if let Some(ish_config) = &config.inner_shadow {
+            draw_inner_shadow(&mut pixmap, geometry.inner_rect, geometry.radius, ish_config);
+        }
+
+        if let Some(p_config) = &config.pattern {
+            if let Some(mut pattern_pixmap) = Pixmap::new(width, height) {
+                draw_pattern(
+                    &mut pattern_pixmap,
+                    geometry.outer_rect,
+                    geometry.inner_rect,
+                    geometry.radius,
+                    p_config,
                 );
-                let steps = sw.ceil() as usize;
-                if steps > 0 {
-                    let total_a = shadow_c.alpha();
-                    let a_step = 1.0 - (1.0 - total_a).powf(1.0 / steps as f32);
-
-                    let step_color = tiny_skia::Color::from_rgba(
-                        shadow_c.red(),
-                        shadow_c.green(),
-                        shadow_c.blue(),
-                        a_step,
-                    )
-                    .unwrap_or_else(|| tiny_skia::Color::BLACK);
-
-                    let mut stroke_paint = Paint::default();
-                    stroke_paint.set_color(step_color);
-                    stroke_paint.anti_alias = true;
-
-                    for i in 0..steps {
-                        let cur_sw = sw - (i as f32);
-                        if cur_sw <= 0.0 {
-                            continue;
-                        }
-
-                        let mut pb = PathBuilder::new();
-                        push_rounded_rect(&mut pb, inner_rect, radius);
-                        if let Some(path) = pb.finish() {
-                            let mut stroke = Stroke::default();
-                            stroke.width = cur_sw * 2.0;
-                            pixmap.stroke_path(
-                                &path,
-                                &stroke_paint,
-                                &stroke,
-                                Transform::identity(),
-                                None,
-                            );
-                        }
-                    }
-                }
-            }
-            // Finally, Erase the center completely transparent
-            if let Some(path) = get_inner_path(inner_rect, radius) {
-                let mut clear_paint = Paint::default();
-                clear_paint.blend_mode = BlendMode::Clear;
-                clear_paint.anti_alias = true;
-                pixmap.fill_path(
-                    &path,
-                    &clear_paint,
-                    FillRule::Winding,
+                pixmap.draw_pixmap(
+                    0,
+                    0,
+                    pattern_pixmap.as_ref(),
+                    &tiny_skia::PixmapPaint::default(),
                     Transform::identity(),
                     None,
                 );
-            }
-
-            // --- Inner Shadow ---
-            if let Some(ish_config) = &config.inner_shadow {
-                draw_inner_shadow(&mut pixmap, inner_rect, radius, ish_config);
-            }
-
-            // --- SVG Pattern ---
-            if let Some(p_config) = &config.pattern {
-                if let Some(mut pattern_pixmap) = Pixmap::new(width, height) {
-                    draw_pattern(&mut pattern_pixmap, inner_rect, radius, p_config);
-                    pixmap.draw_pixmap(
-                        0,
-                        0,
-                        pattern_pixmap.as_ref(),
-                        &tiny_skia::PixmapPaint::default(),
-                        Transform::identity(),
-                        None,
-                    );
-                }
             }
         }
     }
@@ -939,6 +1064,57 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_hex_color_multiplies_global_opacity_and_hex_alpha() {
+        let color = parse_hex_color("#33669980", 0.5);
+
+        assert_eq!(color.red(), 0x33 as f32 / 255.0);
+        assert_eq!(color.green(), 0x66 as f32 / 255.0);
+        assert_eq!(color.blue(), 0x99 as f32 / 255.0);
+        assert!((color.alpha() - (64.0 / 255.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_draw_frame_opacity_respects_hex_alpha() {
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(12),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
+            radius: Some(0),
+            opacity: Some(0.5),
+            color: Some("#ff000080".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: Some("#00000000".to_string()),
+            highlight_width: Some(0.0),
+            highlight_color: Some("#00000000".to_string()),
+            inner_shadow: None,
+            gradient: None,
+            pattern: None,
+            layer: None,
+        };
+
+        let pixels = draw_frame(64, 64, &config);
+        let idx = |x: usize, y: usize| (y * 64 + x) * 4;
+        let pixel = &pixels[idx(4, 4)..idx(4, 4) + 4];
+
+        assert_eq!(pixel[0], 0);
+        assert_eq!(pixel[1], 0);
+        assert!(pixel[2] >= 63 && pixel[2] <= 65, "expected premultiplied red near 64, got {}", pixel[2]);
+        assert!(pixel[3] >= 63 && pixel[3] <= 65, "expected alpha near 64, got {}", pixel[3]);
+    }
+
+    #[test]
     fn test_draw_frame_basic() {
         let mut config = MonitorConfig {
             enabled: Some(true),
@@ -947,6 +1123,14 @@ mod tests {
             thickness_bottom: None,
             thickness_left: None,
             thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
             radius: Some(5),
             opacity: Some(1.0),
             color: Some("#FF0000".to_string()),
@@ -956,6 +1140,7 @@ mod tests {
             highlight_width: Some(2.0),
             highlight_color: Some("#FFFFFF22".to_string()),
             inner_shadow: None,
+            gradient: None,
             pattern: None,
             layer: None,
         };
@@ -985,6 +1170,393 @@ mod tests {
         let pixels_inner = draw_frame(width, height, &config_inner);
         assert_eq!(pixels_inner.len(), (width * height * 4) as usize);
         assert_ne!(pixels_no_effects, pixels_inner);
+    }
+
+    #[test]
+    fn test_draw_frame_respects_margins_and_offsets() {
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(8),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: None,
+            margin: Some(10),
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: Some(6),
+            offset_y: Some(4),
+            radius: Some(4),
+            opacity: Some(1.0),
+            color: Some("#FF0000".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: Some("#00000000".to_string()),
+            highlight_width: Some(0.0),
+            highlight_color: Some("#00000000".to_string()),
+            inner_shadow: None,
+            gradient: None,
+            pattern: None,
+            layer: None,
+        };
+
+        let pixels = draw_frame(64, 64, &config);
+        let idx = |x: usize, y: usize| (y * 64 + x) * 4;
+
+        assert_eq!(&pixels[idx(0, 0)..idx(0, 0) + 4], &[0, 0, 0, 0]);
+        assert_eq!(&pixels[idx(18, 16)..idx(18, 16) + 4], &[0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn test_draw_frame_gradient_fill_varies_across_axis() {
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(12),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
+            radius: Some(4),
+            opacity: Some(1.0),
+            color: Some("#000000".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: Some("#00000000".to_string()),
+            highlight_width: Some(0.0),
+            highlight_color: Some("#00000000".to_string()),
+            inner_shadow: None,
+            gradient: Some(MonitorGradientConfig {
+                enabled: Some(true),
+                mode: Some("vertical".to_string()),
+                start_color: Some("#FF0000".to_string()),
+                end_color: Some("#0000FF".to_string()),
+            }),
+            pattern: None,
+            layer: None,
+        };
+
+        let pixels = draw_frame(64, 64, &config);
+        let idx = |x: usize, y: usize| (y * 64 + x) * 4;
+        let top = &pixels[idx(6, 6)..idx(6, 6) + 4];
+        let bottom = &pixels[idx(6, 57)..idx(6, 57) + 4];
+
+        assert_ne!(top, bottom);
+        assert!(top[2] > top[0]);
+        assert!(bottom[0] > bottom[2]);
+    }
+
+    #[test]
+    fn test_draw_frame_explicit_side_toggle_disables_side() {
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(8),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: Some(MonitorFrameSidesConfig {
+                top: Some(false),
+                bottom: Some(true),
+                left: Some(true),
+                right: Some(true),
+            }),
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
+            radius: Some(4),
+            opacity: Some(1.0),
+            color: Some("#FF0000".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: Some("#00000000".to_string()),
+            highlight_width: Some(0.0),
+            highlight_color: Some("#00000000".to_string()),
+            inner_shadow: None,
+            gradient: None,
+            pattern: None,
+            layer: None,
+        };
+
+        let pixels = draw_frame(64, 64, &config);
+        let idx = |x: usize, y: usize| (y * 64 + x) * 4;
+
+        assert_eq!(&pixels[idx(16, 2)..idx(16, 2) + 4], &[0, 0, 0, 0]);
+        assert_eq!(&pixels[idx(2, 16)..idx(2, 16) + 4], &[0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn test_rounded_inner_cutout_produces_anti_aliased_edge_pixels() {
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(12),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
+            radius: Some(12),
+            opacity: Some(1.0),
+            color: Some("#ff0000".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: Some("#00000000".to_string()),
+            highlight_width: Some(0.0),
+            highlight_color: Some("#00000000".to_string()),
+            inner_shadow: None,
+            gradient: None,
+            pattern: None,
+            layer: None,
+        };
+
+        let pixels = draw_frame(64, 64, &config);
+        let idx = |x: usize, y: usize| (y * 64 + x) * 4;
+
+        assert_eq!(pixels[idx(24, 24) + 3], 0);
+        assert_eq!(pixels[idx(4, 4) + 3], 255);
+
+        let mut saw_partial_alpha = false;
+        for y in 14..18 {
+            for x in 14..18 {
+                let alpha = pixels[idx(x, y) + 3];
+                if alpha > 0 && alpha < 255 {
+                    saw_partial_alpha = true;
+                    break;
+                }
+            }
+            if saw_partial_alpha {
+                break;
+            }
+        }
+
+        assert!(saw_partial_alpha, "expected partially covered pixels around the rounded inner cutout edge");
+    }
+
+    #[test]
+    fn test_pattern_clip_to_frame_keeps_inner_cutout_clear() {
+        use std::env::temp_dir;
+        use std::fs;
+
+        use crate::config::{
+            MonitorPatternConfig, PatternCornersConfig, PatternLayoutConfig, PatternRepeatConfig,
+            PatternSidesConfig, PatternTransformConfig,
+        };
+
+        let svg_path = temp_dir().join("rustbar-pattern-clip-inner.svg");
+        fs::write(
+            &svg_path,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+<rect width="20" height="20" fill="#ffffff"/>
+</svg>"##,
+        )
+        .unwrap();
+
+        let base_pattern = MonitorPatternConfig {
+            enabled: Some(true),
+            source: Some(svg_path.display().to_string()),
+            mode: Some("single".to_string()),
+            opacity: Some(1.0),
+            color: Some("#ffffff".to_string()),
+            blend: Some("normal".to_string()),
+            seed: Some(1),
+            transform: Some(PatternTransformConfig {
+                scale: 2.0,
+                rotation: 0.0,
+                flip_x: false,
+                flip_y: false,
+            }),
+            repeat: Some(PatternRepeatConfig {
+                spacing: 24.0,
+                offset: 0.0,
+                jitter_spacing: 0.0,
+                jitter_rotation: 0.0,
+                jitter_scale: 0.0,
+            }),
+            sides: Some(PatternSidesConfig {
+                top: true,
+                bottom: false,
+                left: false,
+                right: false,
+            }),
+            corners: Some(PatternCornersConfig {
+                avoid_corners: false,
+                corner_padding: 0.0,
+            }),
+            layout: Some(PatternLayoutConfig {
+                follow_edge_direction: true,
+                clip_to_frame: true,
+                prevent_overlap: false,
+                overlap_padding: 0.0,
+                angle: 45.0,
+            }),
+        };
+
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(8),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
+            radius: Some(0),
+            opacity: Some(1.0),
+            color: Some("#000000".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: Some("#00000000".to_string()),
+            highlight_width: Some(0.0),
+            highlight_color: Some("#00000000".to_string()),
+            inner_shadow: None,
+            gradient: None,
+            pattern: Some(base_pattern.clone()),
+            layer: None,
+        };
+
+        let clipped = draw_frame(64, 64, &config);
+
+        let mut unclipped_config = config.clone();
+        if let Some(pattern) = &mut unclipped_config.pattern {
+            if let Some(layout) = &mut pattern.layout {
+                layout.clip_to_frame = false;
+            }
+        }
+        let unclipped = draw_frame(64, 64, &unclipped_config);
+
+        let idx = |x: usize, y: usize| (y * 64 + x) * 4;
+        assert_eq!(&clipped[idx(32, 10)..idx(32, 10) + 4], &[0, 0, 0, 0]);
+        assert_ne!(&unclipped[idx(32, 10)..idx(32, 10) + 4], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_pattern_clip_to_frame_respects_outer_margins() {
+        use std::env::temp_dir;
+        use std::fs;
+
+        use crate::config::{
+            MonitorPatternConfig, PatternCornersConfig, PatternLayoutConfig, PatternRepeatConfig,
+            PatternSidesConfig, PatternTransformConfig,
+        };
+
+        let svg_path = temp_dir().join("rustbar-pattern-clip-outer.svg");
+        fs::write(
+            &svg_path,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+<rect width="20" height="20" fill="#ffffff"/>
+</svg>"##,
+        )
+        .unwrap();
+
+        let pattern = MonitorPatternConfig {
+            enabled: Some(true),
+            source: Some(svg_path.display().to_string()),
+            mode: Some("single".to_string()),
+            opacity: Some(1.0),
+            color: Some("#ffffff".to_string()),
+            blend: Some("normal".to_string()),
+            seed: Some(2),
+            transform: Some(PatternTransformConfig {
+                scale: 2.0,
+                rotation: 0.0,
+                flip_x: false,
+                flip_y: false,
+            }),
+            repeat: Some(PatternRepeatConfig {
+                spacing: 24.0,
+                offset: 0.0,
+                jitter_spacing: 0.0,
+                jitter_rotation: 0.0,
+                jitter_scale: 0.0,
+            }),
+            sides: Some(PatternSidesConfig {
+                top: false,
+                bottom: false,
+                left: true,
+                right: false,
+            }),
+            corners: Some(PatternCornersConfig {
+                avoid_corners: false,
+                corner_padding: 0.0,
+            }),
+            layout: Some(PatternLayoutConfig {
+                follow_edge_direction: true,
+                clip_to_frame: true,
+                prevent_overlap: false,
+                overlap_padding: 0.0,
+                angle: 45.0,
+            }),
+        };
+
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(8),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: None,
+            margin: Some(10),
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
+            radius: Some(0),
+            opacity: Some(1.0),
+            color: Some("#000000".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: Some("#00000000".to_string()),
+            highlight_width: Some(0.0),
+            highlight_color: Some("#00000000".to_string()),
+            inner_shadow: None,
+            gradient: None,
+            pattern: Some(pattern),
+            layer: None,
+        };
+
+        let clipped = draw_frame(64, 64, &config);
+
+        let mut unclipped_config = config.clone();
+        if let Some(pattern) = &mut unclipped_config.pattern {
+            if let Some(layout) = &mut pattern.layout {
+                layout.clip_to_frame = false;
+            }
+        }
+        let unclipped = draw_frame(64, 64, &unclipped_config);
+
+        let idx = |x: usize, y: usize| (y * 64 + x) * 4;
+        assert_eq!(&clipped[idx(4, 32)..idx(4, 32) + 4], &[0, 0, 0, 0]);
+        assert_ne!(&unclipped[idx(4, 32)..idx(4, 32) + 4], &[0, 0, 0, 0]);
     }
 
     #[test]
@@ -1035,6 +1607,14 @@ mod tests {
             thickness_bottom: Some(72),
             thickness_left: Some(48),
             thickness_right: Some(48),
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
             radius: Some(32),
             opacity: Some(0.9),
             color: Some("#1a1b26".to_string()),
@@ -1044,6 +1624,7 @@ mod tests {
             highlight_width: Some(0.0),
             highlight_color: Some("#00000000".to_string()),
             inner_shadow: None,
+            gradient: None,
             pattern: Some(MonitorPatternConfig {
                 enabled: Some(true),
                 source: Some(svg_path.display().to_string()),

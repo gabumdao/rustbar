@@ -12,6 +12,18 @@ pub struct Config {
     pub thickness_bottom: Option<u32>,
     pub thickness_left: Option<u32>,
     pub thickness_right: Option<u32>,
+    #[serde(default)]
+    pub frame_sides: FrameSidesConfig,
+    #[serde(default = "default_margin")]
+    pub margin: u32,
+    pub margin_top: Option<u32>,
+    pub margin_bottom: Option<u32>,
+    pub margin_left: Option<u32>,
+    pub margin_right: Option<u32>,
+    #[serde(default = "default_offset")]
+    pub offset_x: i32,
+    #[serde(default = "default_offset")]
+    pub offset_y: i32,
     #[serde(default = "default_radius")]
     pub radius: u32,
     #[serde(default = "default_opacity")]
@@ -33,6 +45,9 @@ pub struct Config {
 
     #[serde(default)]
     pub inner_shadow: InnerShadowConfig,
+
+    #[serde(default)]
+    pub gradient: GradientConfig,
 
     #[serde(default)]
     pub layer: LayerConfig,
@@ -238,6 +253,41 @@ impl Default for PatternRepeatConfig {
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct FrameSidesConfig {
+    #[serde(default = "default_frame_side_enabled")]
+    pub top: bool,
+    #[serde(default = "default_frame_side_enabled")]
+    pub bottom: bool,
+    #[serde(default = "default_frame_side_enabled")]
+    pub left: bool,
+    #[serde(default = "default_frame_side_enabled")]
+    pub right: bool,
+}
+
+fn default_frame_side_enabled() -> bool {
+    true
+}
+
+impl Default for FrameSidesConfig {
+    fn default() -> Self {
+        Self {
+            top: default_frame_side_enabled(),
+            bottom: default_frame_side_enabled(),
+            left: default_frame_side_enabled(),
+            right: default_frame_side_enabled(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct MonitorFrameSidesConfig {
+    pub top: Option<bool>,
+    pub bottom: Option<bool>,
+    pub left: Option<bool>,
+    pub right: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct PatternSidesConfig {
     #[serde(default = "default_pattern_side_enabled")]
     pub top: bool,
@@ -328,6 +378,50 @@ impl Default for PatternLayoutConfig {
             angle: default_pattern_angle(),
         }
     }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct GradientConfig {
+    #[serde(default = "default_gradient_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_gradient_mode")]
+    pub mode: String,
+    #[serde(default = "default_gradient_start_color")]
+    pub start_color: String,
+    #[serde(default = "default_gradient_end_color")]
+    pub end_color: String,
+}
+
+fn default_gradient_enabled() -> bool {
+    false
+}
+fn default_gradient_mode() -> String {
+    "vertical".to_string()
+}
+fn default_gradient_start_color() -> String {
+    "#000000".to_string()
+}
+fn default_gradient_end_color() -> String {
+    "#202020".to_string()
+}
+
+impl Default for GradientConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_gradient_enabled(),
+            mode: default_gradient_mode(),
+            start_color: default_gradient_start_color(),
+            end_color: default_gradient_end_color(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct MonitorGradientConfig {
+    pub enabled: Option<bool>,
+    pub mode: Option<String>,
+    pub start_color: Option<String>,
+    pub end_color: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -428,6 +522,14 @@ pub struct MonitorConfig {
     pub thickness_bottom: Option<u32>,
     pub thickness_left: Option<u32>,
     pub thickness_right: Option<u32>,
+    pub frame_sides: Option<MonitorFrameSidesConfig>,
+    pub margin: Option<u32>,
+    pub margin_top: Option<u32>,
+    pub margin_bottom: Option<u32>,
+    pub margin_left: Option<u32>,
+    pub margin_right: Option<u32>,
+    pub offset_x: Option<i32>,
+    pub offset_y: Option<i32>,
     pub radius: Option<u32>,
     pub opacity: Option<f32>,
     pub color: Option<String>,
@@ -437,6 +539,7 @@ pub struct MonitorConfig {
     pub highlight_width: Option<f32>,
     pub highlight_color: Option<String>,
     pub inner_shadow: Option<MonitorInnerShadowConfig>,
+    pub gradient: Option<MonitorGradientConfig>,
     pub pattern: Option<MonitorPatternConfig>,
     pub layer: Option<LayerConfig>,
 }
@@ -470,6 +573,12 @@ pub struct MonitorInnerShadowConfig {
 fn default_thickness() -> u32 {
     16
 }
+fn default_margin() -> u32 {
+    0
+}
+fn default_offset() -> i32 {
+    0
+}
 fn default_radius() -> u32 {
     24
 }
@@ -500,6 +609,14 @@ impl Default for Config {
             thickness_bottom: None,
             thickness_left: None,
             thickness_right: None,
+            frame_sides: FrameSidesConfig::default(),
+            margin: default_margin(),
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: default_offset(),
+            offset_y: default_offset(),
             radius: default_radius(),
             opacity: default_opacity(),
             color: default_color(),
@@ -509,6 +626,7 @@ impl Default for Config {
             highlight_width: default_highlight_width(),
             highlight_color: default_highlight_color(),
             inner_shadow: InnerShadowConfig::default(),
+            gradient: GradientConfig::default(),
             pattern: PatternConfig::default(),
             layer: LayerConfig::default(),
             monitors: HashMap::new(),
@@ -561,6 +679,113 @@ fn is_valid_inner_shadow_falloff(falloff: &str) -> bool {
     )
 }
 
+fn is_valid_gradient_mode(mode: &str) -> bool {
+    matches!(
+        mode.to_lowercase().as_str(),
+        "vertical" | "horizontal" | "diagonal_down" | "diagonal_up"
+    )
+}
+
+fn table_without_keys(
+    table: &toml::map::Map<String, toml::Value>,
+    excluded_keys: &[&str],
+) -> toml::map::Map<String, toml::Value> {
+    table
+        .iter()
+        .filter(|(key, _)| !excluded_keys.iter().any(|excluded| key == excluded))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
+fn apply_named_preset(
+    target: &mut toml::map::Map<String, toml::Value>,
+    presets: &toml::map::Map<String, toml::Value>,
+    context: &str,
+    excluded_keys: &[&str],
+    warnings: &mut Vec<String>,
+) {
+    let Some(preset_name) = target
+        .get("preset")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+    else {
+        return;
+    };
+
+    let Some(preset_value) = presets.get(&preset_name) else {
+        warnings.push(format!(
+            "{} sets preset='{}', but no matching preset definition exists",
+            context, preset_name
+        ));
+        return;
+    };
+
+    let Some(preset_table) = preset_value.as_table() else {
+        warnings.push(format!(
+            "preset '{}' for {} is not a TOML table and will be ignored",
+            preset_name, context
+        ));
+        return;
+    };
+
+    let mut merged = toml::Value::Table(table_without_keys(preset_table, &["preset", "presets", "monitors", "include"]));
+    merge_toml_values(
+        &mut merged,
+        toml::Value::Table(table_without_keys(target, excluded_keys)),
+    );
+
+    if let toml::Value::Table(merged_table) = merged {
+        for (key, value) in merged_table {
+            target.insert(key, value);
+        }
+    }
+}
+
+fn apply_presets_to_config_value(value: &mut toml::Value) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    let Some(root) = value.as_table_mut() else {
+        return warnings;
+    };
+
+    let Some(presets_value) = root.get("presets") else {
+        return warnings;
+    };
+
+    let Some(presets) = presets_value.as_table().cloned() else {
+        warnings.push("top-level presets must be a TOML table; preset application will be skipped".to_string());
+        return warnings;
+    };
+
+    apply_named_preset(
+        root,
+        &presets,
+        "global config",
+        &["monitors", "presets", "include"],
+        &mut warnings,
+    );
+
+    if let Some(monitors) = root.get_mut("monitors").and_then(|value| value.as_table_mut()) {
+        for (name, monitor_value) in monitors.iter_mut() {
+            match monitor_value.as_table_mut() {
+                Some(monitor_table) => apply_named_preset(
+                    monitor_table,
+                    &presets,
+                    &format!("monitor '{}'", name),
+                    &[],
+                    &mut warnings,
+                ),
+                None => warnings.push(format!(
+                    "monitor '{}' config is not a TOML table; preset application will be skipped",
+                    name
+                )),
+            }
+        }
+    }
+
+    warnings
+}
+
 fn collect_monitor_validation_warnings(name: &str, config: &MonitorConfig) -> Vec<String> {
     let mut warnings = Vec::new();
     let prefix = if name == "<global>" {
@@ -568,13 +793,6 @@ fn collect_monitor_validation_warnings(name: &str, config: &MonitorConfig) -> Ve
     } else {
         format!("monitor '{}'", name)
     };
-
-    if let Some(preset) = &config.preset {
-        warnings.push(format!(
-            "{} sets preset='{}', but preset application is not implemented",
-            prefix, preset
-        ));
-    }
 
     if let Some(opacity) = config.opacity {
         if !(0.0..=1.0).contains(&opacity) {
@@ -622,6 +840,17 @@ fn collect_monitor_validation_warnings(name: &str, config: &MonitorConfig) -> Ve
                 warnings.push(format!(
                     "{} uses unsupported inner_shadow.falloff='{}'; rustbar will fall back to 'ease_out'",
                     prefix, falloff
+                ));
+            }
+        }
+    }
+
+    if let Some(gradient) = &config.gradient {
+        if let Some(mode) = &gradient.mode {
+            if !is_valid_gradient_mode(mode) {
+                warnings.push(format!(
+                    "{} uses unsupported gradient.mode='{}'; rustbar will fall back to 'vertical'",
+                    prefix, mode
                 ));
             }
         }
@@ -754,6 +983,11 @@ impl Config {
         let config_value = load_value_with_includes(path, &mut Vec::new(), &mut loaded_files)
             .map_err(|e| format!("{}: {}", path.display(), e))?;
 
+        let mut config_value = config_value;
+        for warning in apply_presets_to_config_value(&mut config_value) {
+            warn!("Config warning: {}", warning);
+        }
+
         let mut cfg: Config = config_value
             .try_into()
             .map_err(|e| format!("{}: {}", path.display(), e))?;
@@ -782,6 +1016,19 @@ impl Config {
             thickness_bottom: self.thickness_bottom,
             thickness_left: self.thickness_left,
             thickness_right: self.thickness_right,
+            frame_sides: Some(MonitorFrameSidesConfig {
+                top: Some(self.frame_sides.top),
+                bottom: Some(self.frame_sides.bottom),
+                left: Some(self.frame_sides.left),
+                right: Some(self.frame_sides.right),
+            }),
+            margin: Some(self.margin),
+            margin_top: self.margin_top,
+            margin_bottom: self.margin_bottom,
+            margin_left: self.margin_left,
+            margin_right: self.margin_right,
+            offset_x: Some(self.offset_x),
+            offset_y: Some(self.offset_y),
             radius: Some(self.radius),
             opacity: Some(self.opacity),
             color: Some(self.color.clone()),
@@ -797,6 +1044,12 @@ impl Config {
                 color: Some(self.inner_shadow.color.clone()),
                 softness: Some(self.inner_shadow.softness),
                 falloff: Some(self.inner_shadow.falloff.clone()),
+            }),
+            gradient: Some(MonitorGradientConfig {
+                enabled: Some(self.gradient.enabled),
+                mode: Some(self.gradient.mode.clone()),
+                start_color: Some(self.gradient.start_color.clone()),
+                end_color: Some(self.gradient.end_color.clone()),
             }),
             pattern: Some(MonitorPatternConfig {
                 enabled: Some(self.pattern.enabled),
@@ -823,6 +1076,35 @@ impl Config {
                 thickness_bottom: spec.thickness_bottom.or(global.thickness_bottom),
                 thickness_left: spec.thickness_left.or(global.thickness_left),
                 thickness_right: spec.thickness_right.or(global.thickness_right),
+                frame_sides: Some(MonitorFrameSidesConfig {
+                    top: spec
+                        .frame_sides
+                        .as_ref()
+                        .and_then(|s| s.top)
+                        .or(Some(self.frame_sides.top)),
+                    bottom: spec
+                        .frame_sides
+                        .as_ref()
+                        .and_then(|s| s.bottom)
+                        .or(Some(self.frame_sides.bottom)),
+                    left: spec
+                        .frame_sides
+                        .as_ref()
+                        .and_then(|s| s.left)
+                        .or(Some(self.frame_sides.left)),
+                    right: spec
+                        .frame_sides
+                        .as_ref()
+                        .and_then(|s| s.right)
+                        .or(Some(self.frame_sides.right)),
+                }),
+                margin: spec.margin.or(global.margin),
+                margin_top: spec.margin_top.or(global.margin_top),
+                margin_bottom: spec.margin_bottom.or(global.margin_bottom),
+                margin_left: spec.margin_left.or(global.margin_left),
+                margin_right: spec.margin_right.or(global.margin_right),
+                offset_x: spec.offset_x.or(global.offset_x),
+                offset_y: spec.offset_y.or(global.offset_y),
                 radius: spec.radius.or(global.radius),
                 opacity: spec.opacity.or(global.opacity),
                 color: spec.color.clone().or(global.color),
@@ -862,6 +1144,28 @@ impl Config {
                         .as_ref()
                         .and_then(|s| s.falloff.clone())
                         .or(Some(self.inner_shadow.falloff.clone())),
+                }),
+                gradient: Some(MonitorGradientConfig {
+                    enabled: spec
+                        .gradient
+                        .as_ref()
+                        .and_then(|s| s.enabled)
+                        .or(Some(self.gradient.enabled)),
+                    mode: spec
+                        .gradient
+                        .as_ref()
+                        .and_then(|s| s.mode.clone())
+                        .or(Some(self.gradient.mode.clone())),
+                    start_color: spec
+                        .gradient
+                        .as_ref()
+                        .and_then(|s| s.start_color.clone())
+                        .or(Some(self.gradient.start_color.clone())),
+                    end_color: spec
+                        .gradient
+                        .as_ref()
+                        .and_then(|s| s.end_color.clone())
+                        .or(Some(self.gradient.end_color.clone())),
                 }),
                 pattern: Some(MonitorPatternConfig {
                     enabled: spec
@@ -1217,6 +1521,196 @@ opacity = 0.5
     }
 
     #[test]
+    fn test_apply_presets_to_config_value_merges_global_and_monitor_presets() {
+        let mut value: toml::Value = toml::from_str(
+            r##"
+preset = "crt"
+color = "#112233"
+
+[presets.crt]
+thickness = 28
+radius = 40
+shadow_width = 20.0
+
+[presets.crt.pattern]
+enabled = true
+source = "grid.svg"
+mode = "repeat"
+
+[monitors."DP-1"]
+preset = "thin"
+opacity = 0.7
+
+[presets.thin]
+thickness = 6
+radius = 10
+
+[presets.thin.pattern]
+enabled = true
+source = "thin.svg"
+mode = "diamond"
+
+[monitors."DP-1".pattern]
+opacity = 0.3
+"##,
+        )
+        .unwrap();
+
+        let warnings = apply_presets_to_config_value(&mut value);
+        assert!(warnings.is_empty());
+
+        let cfg: Config = value.try_into().unwrap();
+        assert_eq!(cfg.thickness, 28);
+        assert_eq!(cfg.radius, 40);
+        assert_eq!(cfg.color, "#112233");
+        assert_eq!(cfg.shadow_width, 20.0);
+        assert!(cfg.pattern.enabled);
+        assert_eq!(cfg.pattern.source.as_deref(), Some("grid.svg"));
+
+        let monitor = cfg.for_monitor("DP-1");
+        assert_eq!(monitor.thickness, Some(6));
+        assert_eq!(monitor.radius, Some(10));
+        assert_eq!(monitor.opacity, Some(0.7));
+        assert_eq!(
+            monitor.pattern.as_ref().and_then(|pattern| pattern.source.as_deref()),
+            Some("thin.svg")
+        );
+        assert_eq!(
+            monitor.pattern.as_ref().and_then(|pattern| pattern.mode.as_deref()),
+            Some("diamond")
+        );
+        assert_eq!(
+            monitor.pattern.as_ref().and_then(|pattern| pattern.opacity),
+            Some(0.3)
+        );
+    }
+
+    #[test]
+    fn test_for_monitor_merges_frame_side_toggles() {
+        let mut cfg = Config {
+            frame_sides: FrameSidesConfig {
+                top: false,
+                bottom: true,
+                left: true,
+                right: true,
+            },
+            ..Config::default()
+        };
+
+        cfg.monitors.insert(
+            "DP-1".to_string(),
+            MonitorConfig {
+                enabled: Some(true),
+                thickness: None,
+                thickness_top: None,
+                thickness_bottom: None,
+                thickness_left: None,
+                thickness_right: None,
+                frame_sides: Some(MonitorFrameSidesConfig {
+                    top: None,
+                    bottom: Some(false),
+                    left: Some(false),
+                    right: None,
+                }),
+                margin: None,
+                margin_top: None,
+                margin_bottom: None,
+                margin_left: None,
+                margin_right: None,
+                offset_x: None,
+                offset_y: None,
+                radius: None,
+                opacity: None,
+                color: None,
+                preset: None,
+                gradient: None,
+                shadow_width: None,
+                shadow_color: None,
+                highlight_width: None,
+                highlight_color: None,
+                inner_shadow: None,
+                pattern: None,
+                layer: None,
+            },
+        );
+
+        let monitor = cfg.for_monitor("DP-1");
+        let frame_sides = monitor.frame_sides.expect("merged frame sides");
+
+        assert_eq!(frame_sides.top, Some(false));
+        assert_eq!(frame_sides.bottom, Some(false));
+        assert_eq!(frame_sides.left, Some(false));
+        assert_eq!(frame_sides.right, Some(true));
+    }
+
+    #[test]
+    fn test_apply_presets_to_config_value_warns_for_missing_preset() {
+        let mut value: toml::Value = toml::from_str(
+            r##"
+preset = "missing"
+color = "#abcdef"
+
+[presets.valid]
+thickness = 30
+"##,
+        )
+        .unwrap();
+
+        let warnings = apply_presets_to_config_value(&mut value);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("preset='missing'"));
+
+        let cfg: Config = value.try_into().unwrap();
+        assert_eq!(cfg.color, "#abcdef");
+        assert_eq!(cfg.thickness, default_thickness());
+    }
+
+    #[test]
+    fn test_try_load_applies_presets_before_deserialization() {
+        let dir = temp_dir().join("rustbar-preset-load-test");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("rustbar.toml");
+        fs::write(
+            &config_path,
+            r##"
+preset = "crt"
+
+[presets.crt]
+thickness = 26
+radius = 34
+
+[presets.crt.layer]
+level = "top"
+
+[monitors."DP-1"]
+preset = "thin"
+
+[presets.thin]
+thickness = 8
+
+[presets.thin.layer]
+level = "overlay"
+"##,
+        )
+        .unwrap();
+
+        let cfg = Config::try_load(&config_path).unwrap();
+        assert_eq!(cfg.thickness, 26);
+        assert_eq!(cfg.radius, 34);
+        assert_eq!(cfg.layer.level, "top");
+
+        let monitor = cfg.for_monitor("DP-1");
+        assert_eq!(monitor.thickness, Some(8));
+        assert_eq!(
+            monitor.layer.as_ref().map(|layer| layer.level.as_str()),
+            Some("overlay")
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn test_collect_monitor_validation_warnings_reports_silent_fallbacks() {
         let config = MonitorConfig {
             enabled: Some(true),
@@ -1225,10 +1719,18 @@ opacity = 0.5
             thickness_bottom: None,
             thickness_left: None,
             thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
             radius: None,
             opacity: Some(1.5),
             color: None,
-            preset: Some("crt".to_string()),
+            preset: None,
             shadow_width: None,
             shadow_color: None,
             highlight_width: None,
@@ -1240,6 +1742,12 @@ opacity = 0.5
                 color: None,
                 softness: Some(0.0),
                 falloff: Some("weird".to_string()),
+            }),
+            gradient: Some(MonitorGradientConfig {
+                enabled: Some(true),
+                mode: Some("spiral".to_string()),
+                start_color: Some("#111111".to_string()),
+                end_color: Some("#222222".to_string()),
             }),
             pattern: Some(MonitorPatternConfig {
                 enabled: Some(true),
@@ -1274,11 +1782,6 @@ opacity = 0.5
         assert!(
             warnings
                 .iter()
-                .any(|warning| warning.contains("preset='crt'"))
-        );
-        assert!(
-            warnings
-                .iter()
                 .any(|warning| warning.contains("layer.level='ceiling'"))
         );
         assert!(
@@ -1309,6 +1812,11 @@ opacity = 0.5
         assert!(
             warnings
                 .iter()
+                .any(|warning| warning.contains("gradient.mode='spiral'"))
+        );
+        assert!(
+            warnings
+                .iter()
                 .any(|warning| warning.contains("opacity=1.5"))
         );
         assert!(
@@ -1332,6 +1840,14 @@ opacity = 0.5
             thickness_bottom: None,
             thickness_left: None,
             thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
             radius: None,
             opacity: None,
             color: None,
@@ -1341,6 +1857,7 @@ opacity = 0.5
             highlight_width: None,
             highlight_color: None,
             inner_shadow: None,
+            gradient: None,
             pattern: Some(MonitorPatternConfig {
                 enabled: Some(true),
                 source: Some("definitely-missing-rustbar-test-asset".to_string()),
