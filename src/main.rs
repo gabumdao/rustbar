@@ -6,7 +6,7 @@ pub mod wayland;
 use wayland_client::Connection;
 
 pub enum AppEvent {
-    ReloadConfig,
+    ReloadConfig(std::time::Instant),
     CheckFullscreen,
 }
 
@@ -71,6 +71,8 @@ fn run() -> Result<(), String> {
         output_ids: std::collections::HashMap::new(),
         output_scales: std::collections::HashMap::new(),
         output_transforms: std::collections::HashMap::new(),
+        render_caches: std::collections::HashMap::new(),
+        last_reload_at: None,
         fullscreen_hidden: std::collections::HashSet::new(),
         watcher: None,
     };
@@ -83,7 +85,7 @@ fn run() -> Result<(), String> {
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         if let Ok(event) = res {
             if event.kind.is_modify() || event.kind.is_create() {
-                let _ = tx_clone.send(AppEvent::ReloadConfig);
+                let _ = tx_clone.send(AppEvent::ReloadConfig(std::time::Instant::now()));
             }
         }
     })
@@ -156,8 +158,16 @@ fn run() -> Result<(), String> {
         .insert_source(rx, move |event, _, state| {
             if let calloop::channel::Event::Msg(msg) = event {
                 match msg {
-                    AppEvent::ReloadConfig => {
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    AppEvent::ReloadConfig(triggered_at) => {
+                        let debounce_window = std::time::Duration::from_millis(200);
+                        if state
+                            .last_reload_at
+                            .map(|last| triggered_at.saturating_duration_since(last) < debounce_window)
+                            .unwrap_or(false)
+                        {
+                            return;
+                        }
+                        state.last_reload_at = Some(triggered_at);
                         let resolved_path = config::Config::resolve_path();
                         match config::Config::try_load_default() {
                             Ok(new_config) => {
@@ -171,8 +181,13 @@ fn run() -> Result<(), String> {
 
                                 if let Some(watcher) = &mut state.watcher {
                                     use notify::Watcher;
-                                    for f in old_files {
-                                        if let Err(err) = watcher.unwatch(&f) {
+                                    let old_set: std::collections::BTreeSet<_> =
+                                        old_files.iter().cloned().collect();
+                                    let new_set: std::collections::BTreeSet<_> =
+                                        state.config.loaded_files.iter().cloned().collect();
+
+                                    for f in old_set.difference(&new_set) {
+                                        if let Err(err) = watcher.unwatch(f) {
                                             log::warn!(
                                                 "Failed to stop watching old config file {}: {}",
                                                 f.display(),
@@ -180,7 +195,7 @@ fn run() -> Result<(), String> {
                                             );
                                         }
                                     }
-                                    for f in &state.config.loaded_files {
+                                    for f in new_set.difference(&old_set) {
                                         if let Err(err) =
                                             watcher.watch(f, notify::RecursiveMode::NonRecursive)
                                         {

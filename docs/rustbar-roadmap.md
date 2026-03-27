@@ -190,7 +190,7 @@ Checklist:
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
 | TOML configuration support | Implemented | [x] | [x] | [x] | [x] | Core config loading is present. | None. |
 | Include support | Implemented | [x] | [x] | [x] | [ ] | `include` and variable expansion work and are now documented in the configuration guide. | Add more examples if needed. |
-| Live reload / config reload | Implemented | [x] | [ ] | [x] | [ ] | File watcher reloads all loaded config files. | Add manual and automated reload verification. |
+| Live reload / config reload | Implemented, Needs bugfix | [x] | [x] | [x] | [ ] | File watcher reloads all loaded config files, but visible updates are currently delayed by expensive serial redraws. In the latest Hyprland capture, `Reloaded config` logged immediately while the two monitor redraws landed about 4.2s apart, making simple color changes feel slow. | Reduce redraw cost and/or avoid synchronous full-surface serial redraw on reload. |
 | Validation of invalid config | Partially implemented | [x] | [x] | [x] | [ ] | Parse errors still skip reload, but load-time validation warnings now flag silent fallback cases such as unsupported layer values, unsupported pattern settings, missing pattern sources, invalid opacity ranges, and unknown or invalid preset definitions. | Consider stronger schema validation later. |
 | Fallback behavior | Implemented | [x] | [x] | [x] | [ ] | Config path, namespace fallback, and enum fallbacks are documented. | Add runtime verification notes where useful. |
 | Default values | Implemented | [x] | [x] | [x] | [ ] | Defaults are declared in config structs. | Sync docs tightly to code. |
@@ -210,11 +210,11 @@ Checklist:
 
 | Feature | Status | Code | Tested | Docs | Ready | Notes | Next action |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
-| Idle CPU behavior | Needs bugfix | [x] | [x] | [x] | [ ] | First Hyprland capture on two 1920x1080 outputs never settled near idle in a dev-profile run: sampled CPU ranged from 26.10% to 99.00% with a 56.33% average over roughly 6 minutes. | Investigate the hot path, then repeat idle measurement in both dev and release builds. |
-| Redraw behavior | Needs bugfix | [x] | [x] | [x] | [ ] | Redraw happens on configure and config reload; no frame callback loop is used. The first Hyprland performance capture recorded only 8 redraws, but each redraw reported 11643.795ms to 12651.987ms of render time while upload stayed between 1.135ms and 9.032ms, which points to a severe render-side problem. | Investigate the multi-second render spans before collecting more comparative benchmarks. |
-| Caching strategy | Partially implemented | [x] | [x] | [ ] | [ ] | SHM slot pools are reused per surface, and SVG trees are now cached by path plus mtime, but there is still no broader render/cache model. | Document current cache behavior and consider higher-level render caches later. |
+| Idle CPU behavior | Needs bugfix | [x] | [x] | [x] | [ ] | First Hyprland captures on two 1920x1080 outputs never settled near idle in dev-profile runs. The latest capture ranged from 8.40% to 78.00% CPU with a 60.58% average, so the baseline issue is still unresolved even after the first pattern-render optimization. | Investigate the hot path, then repeat idle measurement in both dev and release builds. |
+| Redraw behavior | Needs bugfix | [x] | [x] | [x] | [ ] | Redraw happens on configure and config reload; no frame callback loop is used. The first Hyprland performance capture recorded only 8 redraws at 11643.795ms to 12651.987ms each. After replacing the per-motif full-output temporary pixmap allocation in pattern rendering with a reusable motif-sized path, the next capture improved to 4138.053ms to 4215.834ms per redraw, which is materially better but still far too slow. | Investigate the next remaining render hotspot and rerun the performance capture after the next optimization. |
+| Caching strategy | Partially implemented | [x] | [x] | [ ] | [ ] | SHM slot pools are reused per surface, SVG trees are cached by path plus mtime, and the renderer now keeps retained per-output frame, inner-shadow, and pattern layers with selective invalidation by config subsection. The cache architecture is in place, but performance still needs fresh measurement and likely more invalidation tuning. | Measure the retained-cache impact, then refine layer granularity if redraw cost is still too high. |
 | Geometry recomputation rules | Partially implemented | [x] | [ ] | [ ] | [ ] | Geometry is recomputed on draw/configure, and scale/transform changes now feed the output-aware redraw path, but live guarantees are not verified yet. | Define explicit recomputation triggers and verify compositor behavior. |
-| Multi-monitor performance | Needs bugfix | [x] | [x] | [x] | [ ] | First Hyprland multi-output capture covered DP-1 and HDMI-A-1 at 1920x1080 scale 1 / Normal transform. Both outputs showed multi-second render times, with DP-1 peaking at 12651.987ms. | Fix the baseline render-cost issue, then repeat comparative multi-output measurements. |
+| Multi-monitor performance | Needs bugfix | [x] | [x] | [x] | [ ] | Hyprland multi-output captures on DP-1 and HDMI-A-1 at 1920x1080 scale 1 / Normal transform remain in multi-second territory. The latest capture still ranged from 4138.053ms to 4215.834ms per redraw, with DP-1 peaking at 4215.834ms. | Fix the baseline render-cost issue, then repeat comparative multi-output measurements. |
 | Startup behavior | Partially implemented | [x] | [ ] | [x] | [ ] | Startup now returns clearer fatal errors for missing Wayland prerequisites and logs which config path was loaded, but it still depends on runtime/manual validation rather than dedicated startup tests. | Add startup-focused tests only if this path keeps changing. |
 | Runtime stability | Partially implemented | [x] | [x] | [ ] | [ ] | Unit tests pass, but runtime integration coverage is minimal. | Add compositor smoke tests and manual QA checklist. |
 
@@ -395,6 +395,12 @@ Postpone until:
 
 ## 7. Open Questions and Technical Uncertainties
 
+Selected rendering strategy:
+
+- Use retained per-output layer caches with selective invalidation as the main performance fix.
+- Keep the current renderer and dependencies; no new graphics library is selected at this stage.
+- Use tiny-skia masks and cached pixmaps for compositing, and reserve pattern-shader specialization as an optional follow-up optimization for simple repeat modes only.
+
 - What is the intended fullscreen product behavior: hide entirely, switch layer, disable input only, or user-selectable policy?
 - Should rustbar keep supporting both `frame_sides` and zero-thickness side disabling long-term, or eventually recommend one canonical style?
 - Should presets remain purely user-defined, or should rustbar eventually ship named preset packs?
@@ -404,14 +410,14 @@ Postpone until:
 
 ## 8. Recommended Immediate Next Steps
 
-1. Run the prepared Sway verification pass, which now covers shell behavior, fullscreen expectations, output lifecycle, and scale/transform behavior.
-2. Extend the support matrix after the Sway pass so it captures verified behavior instead of expected behavior.
-3. Fix any compositor-specific runtime issues found during the next non-Hyprland verification pass before expanding the feature surface further.
-4. Keep geometry and output-lifecycle docs aligned with any behavior changes discovered during broader compositor coverage.
+1. Rerun performance captures in both debug and release builds now that retained per-output layer caches are in place.
+2. Verify that one file save now produces one config reload, simple TOML color edits stay fast in release mode, and watcher-noise logs are reduced.
+3. If redraw time is still too high, split cache granularity further or specialize simple pattern modes using tiny-skia pattern shaders.
+4. After performance is under control, resume broader compositor verification and keep geometry/output-lifecycle docs aligned with any behavior changes.
 
 ## 9. Active Verification Step
 
-The Hyprland shell/layer verification pass is now complete across shell behavior, per-monitor reload behavior, hotplug/output-change behavior, and output-aware scale/transform handling. The per-output lifecycle and monitor-override precedence are documented in the configuration guide, and the checklist now records the passing Hyprland results. The first Hyprland performance capture has also been recorded through `scripts/perf_capture.sh`, and it exposed a severe runtime issue: only 8 redraws were logged, but each redraw reported 11.6s to 12.7s of render time while CPU stayed far above idle. The next immediate runtime work is to investigate and fix that render-cost/CPU problem before expanding the benchmark matrix.
+The Hyprland shell/layer verification pass is now complete across shell behavior, per-monitor reload behavior, hotplug/output-change behavior, and output-aware scale/transform handling. The per-output lifecycle and monitor-override precedence are documented in the configuration guide, and the checklist now records the passing Hyprland results. The first Hyprland performance captures exposed a severe runtime issue: redraws started in the 11.6s-12.7s range, then improved into the 3.0s-4.2s range after several allocation-focused optimizations, but reload-visible updates were still blocked behind expensive serial redraws. The retained per-output layer-cache refactor is now implemented for the main frame, inner-shadow, and pattern layers. The next immediate runtime work is to rerun the performance capture and verify whether selective invalidation materially reduces redraw time and TOML color-update latency before refining cache granularity further.
 
 ## 10. Contributor Tracking Checklist
 
@@ -438,7 +444,19 @@ The Hyprland shell/layer verification pass is now complete across shell behavior
 - [x] Added opacity and hex-alpha regression coverage
 - [x] Added debug redraw timing instrumentation
 - [x] Added a performance capture script
-- [ ] Investigate severe render-time / CPU issue from first performance capture
+- [x] Identified a per-motif full-output pixmap allocation hotspot in pattern rendering
+- [x] Applied the first pattern-render allocation optimization
+- [x] Reused the rounded inner path across frame shadow and clear passes
+- [x] Removed one full-surface temporary pixmap from the inner-shadow pass
+- [x] Avoided a full-surface pattern pixmap when frame clipping is disabled
+- [x] Implemented retained per-output frame, inner-shadow, and pattern layer caches
+- [x] Split retained frame caching into base-fill and decor layers for narrower invalidation on color edits
+- [x] Added stateful debounce to coalesce duplicate config reload events
+- [x] Corrected the debounce regression that blocked legitimate hot reloads
+- [x] Changed watcher reconfiguration to diff old/new watched files instead of unwatching and rewatching everything on each reload
+- [x] Reran performance capture after the first optimization
+- [ ] Identify the next remaining render hotspot
+- [ ] Reduce reload latency for simple TOML color changes
 - [x] Added opacity and hex-alpha regression coverage
 - [x] Added anti-aliasing regression coverage for the rounded inner cutout
 

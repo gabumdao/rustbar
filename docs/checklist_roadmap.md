@@ -528,6 +528,6 @@ After running the pass, summarize:
 
 Summary fields:
 
-- Overall result: Fail
-- Key findings: The first Hyprland capture produced only 8 redraws, but each redraw took 11.6s to 12.7s of reported render time while upload remained 1.1ms to 9.0ms. CPU also never settled near idle during the ~6 minute run, averaging 56.33% and bottoming out only around 26.10%.
-- Follow-up actions: Treat runtime performance as a bugfix priority, investigate why render time is measured in multi-second spans, and repeat single-output and pattern-specific benchmarks after the baseline issue is fixed.
+- Overall result: Partial
+- Key findings: After the first pattern-render allocation fix, a second Hyprland capture improved redraw timing from roughly 11.6s-12.7s down to 4.14s-4.22s per redraw, and upload averaged 2.742ms. CPU still remained far above idle, ranging from 8.40% to 78.00% with a 60.58% average.
+- Follow-up actions: Keep performance as a bugfix priority, isolate the remaining render hotspot(s), and rerun single-output and pattern-specific captures after the next optimization.

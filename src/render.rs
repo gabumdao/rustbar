@@ -181,60 +181,6 @@ fn draw_inner_shadow(
     let softness = config.softness.unwrap_or(1.0).clamp(0.01, 2.0);
     let falloff_style = config.falloff.as_deref().unwrap_or("ease_out");
 
-    // Create a temporary pixmap to draw the shadow, then composite using the inner path as mask
-    let mut shadow_pixmap = match Pixmap::new(pixmap.width(), pixmap.height()) {
-        Some(p) => p,
-        None => return,
-    };
-
-    let mut paint = Paint::default();
-    paint.anti_alias = true;
-
-    for i in 0..steps {
-        let t = (i as f32 + 0.5) / steps as f32; // 0 to 1
-
-        // Width of this stroke step
-        let w = size * t;
-
-        // Opacity based on falloff/softness
-        // We'll use a simple ease-out-like curve if requested
-        let factor = match falloff_style {
-            "ease_out" => (1.0 - t).powf(1.0 / softness),
-            "ease_in" => 1.0 - t.powf(1.0 / softness),
-            "linear" => 1.0 - t,
-            _ => (1.0 - t).powf(1.0 / softness), // default to ease_out
-        };
-
-        // Since we are stacking strokes, we need to calculate the incremental alpha
-        // But it's easier to think of each stroke as covering [0, w]
-        // If we draw from t=1 down to 0, each stroke is wider.
-        // Actually, let's use the property that a stroke of width 2*w centered on path
-        // covers [0, w] inside and [0, w] outside.
-        // We only care about the inside because we'll clip later.
-
-        // To get a smooth gradient by stacking:
-        // Alpha of this step's contribution.
-        // If we want total alpha A(t) = base_opacity * factor(t)
-        // And we're stacking N steps, then each step i adds some alpha.
-        // Actually, more robust: draw each step i with alpha that makes it reach target.
-        // Or just draw N strokes with small alpha and sum them up.
-
-        let step_alpha = (base_opacity * factor) / (steps as f32 / 4.0);
-        let step_color = Color::from_rgba(
-            base_color.red(),
-            base_color.green(),
-            base_color.blue(),
-            step_alpha.clamp(0.0, 1.0),
-        )
-        .unwrap_or(Color::BLACK);
-
-        paint.set_color(step_color);
-        let mut stroke = Stroke::default();
-        stroke.width = w * 2.0;
-        shadow_pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-    }
-
-    // Now composite shadow_pixmap onto main pixmap, BUT ONLY inside the inner path
     let mut mask_pixmap = match Pixmap::new(pixmap.width(), pixmap.height()) {
         Some(p) => p,
         None => return,
@@ -250,16 +196,35 @@ fn draw_inner_shadow(
         None,
     );
 
-    // Use alpha-only mask to composite
     let mask = tiny_skia::Mask::from_pixmap(mask_pixmap.as_ref(), tiny_skia::MaskType::Alpha);
-    pixmap.draw_pixmap(
-        0,
-        0,
-        shadow_pixmap.as_ref(),
-        &tiny_skia::PixmapPaint::default(),
-        Transform::identity(),
-        Some(&mask),
-    );
+    let mut paint = Paint::default();
+    paint.anti_alias = true;
+
+    for i in 0..steps {
+        let t = (i as f32 + 0.5) / steps as f32; // 0 to 1
+        let w = size * t;
+
+        let factor = match falloff_style {
+            "ease_out" => (1.0 - t).powf(1.0 / softness),
+            "ease_in" => 1.0 - t.powf(1.0 / softness),
+            "linear" => 1.0 - t,
+            _ => (1.0 - t).powf(1.0 / softness),
+        };
+
+        let step_alpha = (base_opacity * factor) / (steps as f32 / 4.0);
+        let step_color = Color::from_rgba(
+            base_color.red(),
+            base_color.green(),
+            base_color.blue(),
+            step_alpha.clamp(0.0, 1.0),
+        )
+        .unwrap_or(Color::BLACK);
+
+        paint.set_color(step_color);
+        let mut stroke = Stroke::default();
+        stroke.width = w * 2.0;
+        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), Some(&mask));
+    }
 }
 
 fn draw_pattern(
@@ -350,7 +315,16 @@ fn draw_pattern(
         .color
         .as_ref()
         .map(|tint_hex| parse_hex_color(tint_hex, config.opacity.unwrap_or(1.0)));
-    let target_rect = Rect::from_xywh(0.0, 0.0, pixmap.width() as f32, pixmap.height() as f32);
+    let tinted_motif_pixmap = tint_color.and_then(|tint| {
+        let mut tinted = Pixmap::new(motif_pixmap.width(), motif_pixmap.height())?;
+        let target_rect = Rect::from_xywh(0.0, 0.0, tinted.width() as f32, tinted.height() as f32)?;
+        let mask = tiny_skia::Mask::from_pixmap(motif_pixmap.as_ref(), tiny_skia::MaskType::Alpha);
+        let mut paint = Paint::default();
+        paint.set_color(tint);
+        paint.anti_alias = true;
+        tinted.fill_rect(target_rect, &paint, Transform::identity(), Some(&mask));
+        Some(tinted)
+    });
 
     let seed = config.seed.unwrap_or(0);
     let mut rng = SimpleRng::new(seed);
@@ -398,40 +372,20 @@ fn draw_pattern(
             _ => BlendMode::SourceOver,
         };
 
-        let Some(mut instance_pixmap) = Pixmap::new(p.width(), p.height()) else {
-            return;
-        };
+        let source_pixmap = tinted_motif_pixmap
+            .as_ref()
+            .map(|pixmap| pixmap.as_ref())
+            .unwrap_or_else(|| motif_pixmap.as_ref());
 
-        let mut base_paint = PixmapPaint::default();
-        base_paint.opacity = 1.0;
-        base_paint.quality = FilterQuality::Bicubic;
-        instance_pixmap.draw_pixmap(0, 0, motif_pixmap.as_ref(), &base_paint, ts, None);
-
-        if let Some(tint) = tint_color {
-            let Some(target_rect) = target_rect else {
-                return;
-            };
-            let mask =
-                tiny_skia::Mask::from_pixmap(instance_pixmap.as_ref(), tiny_skia::MaskType::Alpha);
-            let mut paint = Paint::default();
-            paint.set_color(tint);
-            paint.blend_mode = blend_mode;
-            paint.anti_alias = true;
-            p.fill_rect(target_rect, &paint, Transform::identity(), Some(&mask));
+        let mut pp = PixmapPaint::default();
+        pp.opacity = if tint_color.is_some() {
+            1.0
         } else {
-            let mut pp = PixmapPaint::default();
-            pp.opacity = config.opacity.unwrap_or(1.0);
-            pp.blend_mode = blend_mode;
-            pp.quality = FilterQuality::Bicubic;
-            p.draw_pixmap(
-                0,
-                0,
-                instance_pixmap.as_ref(),
-                &pp,
-                Transform::identity(),
-                None,
-            );
-        }
+            config.opacity.unwrap_or(1.0)
+        };
+        pp.blend_mode = blend_mode;
+        pp.quality = FilterQuality::Bicubic;
+        p.draw_pixmap(0, 0, source_pixmap, &pp, ts, None);
     };
 
     let spacing = repeat_config.spacing.max(1.0);
@@ -912,133 +866,386 @@ fn compute_frame_geometry(width: u32, height: u32, config: &MonitorConfig) -> Op
     })
 }
 
-pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
-    let mut pixmap = Pixmap::new(width, height).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
+#[derive(Clone, PartialEq)]
+struct GeometrySignature {
+    width: u32,
+    height: u32,
+    thickness: Option<u32>,
+    thickness_top: Option<u32>,
+    thickness_bottom: Option<u32>,
+    thickness_left: Option<u32>,
+    thickness_right: Option<u32>,
+    frame_sides: Option<MonitorFrameSidesConfig>,
+    margin: Option<u32>,
+    margin_top: Option<u32>,
+    margin_bottom: Option<u32>,
+    margin_left: Option<u32>,
+    margin_right: Option<u32>,
+    offset_x: Option<i32>,
+    offset_y: Option<i32>,
+    radius: Option<u32>,
+}
 
-    if let Some(geometry) = compute_frame_geometry(width, height, config) {
-        let paint = fill_paint_for_frame(geometry.outer_rect, config);
-        pixmap.fill_rect(geometry.outer_rect, &paint, Transform::identity(), None);
+#[derive(Clone, PartialEq)]
+struct BaseLayerSignature {
+    geometry: GeometrySignature,
+    opacity: Option<f32>,
+    color: Option<String>,
+    gradient: Option<MonitorGradientConfig>,
+}
 
-        let hw = config.highlight_width.unwrap_or(3.0);
-        if hw > 0.0 {
-            if let Some(highlight_rect) = Rect::from_xywh(
-                geometry.outer_rect.left() + hw / 2.0,
-                geometry.outer_rect.top() + hw / 2.0,
-                geometry.outer_rect.width() - hw,
-                geometry.outer_rect.height() - hw,
-            ) {
-                let mut pb = PathBuilder::new();
-                push_rounded_rect(&mut pb, highlight_rect, 0.0);
-                if let Some(path) = pb.finish() {
-                    let mut stroke_paint = Paint::default();
-                    stroke_paint.set_color(parse_hex_color(
-                        config.highlight_color.as_deref().unwrap_or("#FFFFFF22"),
-                        config.opacity.unwrap_or(1.0),
-                    ));
-                    stroke_paint.anti_alias = true;
-                    let mut stroke = Stroke::default();
-                    stroke.width = hw;
-                    pixmap.stroke_path(
-                        &path,
-                        &stroke_paint,
-                        &stroke,
-                        Transform::identity(),
-                        None,
-                    );
-                }
+#[derive(Clone, PartialEq)]
+struct DecorLayerSignature {
+    geometry: GeometrySignature,
+    opacity: Option<f32>,
+    shadow_width: Option<f32>,
+    shadow_color: Option<String>,
+    highlight_width: Option<f32>,
+    highlight_color: Option<String>,
+}
+
+#[derive(Clone, PartialEq)]
+struct InnerShadowLayerSignature {
+    geometry: GeometrySignature,
+    inner_shadow: Option<MonitorInnerShadowConfig>,
+}
+
+#[derive(Clone, PartialEq)]
+struct PatternLayerSignature {
+    geometry: GeometrySignature,
+    pattern: Option<MonitorPatternConfig>,
+}
+
+#[derive(Default)]
+pub struct FrameRenderCache {
+    geometry_signature: Option<GeometrySignature>,
+    geometry: Option<FrameGeometry>,
+    base_signature: Option<BaseLayerSignature>,
+    base_layer: Option<Pixmap>,
+    decor_signature: Option<DecorLayerSignature>,
+    decor_layer: Option<Pixmap>,
+    inner_shadow_signature: Option<InnerShadowLayerSignature>,
+    inner_shadow_layer: Option<Pixmap>,
+    pattern_signature: Option<PatternLayerSignature>,
+    pattern_layer: Option<Pixmap>,
+}
+
+fn geometry_signature(width: u32, height: u32, config: &MonitorConfig) -> GeometrySignature {
+    GeometrySignature {
+        width,
+        height,
+        thickness: config.thickness,
+        thickness_top: config.thickness_top,
+        thickness_bottom: config.thickness_bottom,
+        thickness_left: config.thickness_left,
+        thickness_right: config.thickness_right,
+        frame_sides: config.frame_sides.clone(),
+        margin: config.margin,
+        margin_top: config.margin_top,
+        margin_bottom: config.margin_bottom,
+        margin_left: config.margin_left,
+        margin_right: config.margin_right,
+        offset_x: config.offset_x,
+        offset_y: config.offset_y,
+        radius: config.radius,
+    }
+}
+
+fn base_layer_signature(width: u32, height: u32, config: &MonitorConfig) -> BaseLayerSignature {
+    BaseLayerSignature {
+        geometry: geometry_signature(width, height, config),
+        opacity: config.opacity,
+        color: config.color.clone(),
+        gradient: config.gradient.clone(),
+    }
+}
+
+fn decor_layer_signature(width: u32, height: u32, config: &MonitorConfig) -> DecorLayerSignature {
+    DecorLayerSignature {
+        geometry: geometry_signature(width, height, config),
+        opacity: config.opacity,
+        shadow_width: config.shadow_width,
+        shadow_color: config.shadow_color.clone(),
+        highlight_width: config.highlight_width,
+        highlight_color: config.highlight_color.clone(),
+    }
+}
+
+fn inner_shadow_layer_signature(
+    width: u32,
+    height: u32,
+    config: &MonitorConfig,
+) -> InnerShadowLayerSignature {
+    InnerShadowLayerSignature {
+        geometry: geometry_signature(width, height, config),
+        inner_shadow: config.inner_shadow.clone(),
+    }
+}
+
+fn pattern_layer_signature(width: u32, height: u32, config: &MonitorConfig) -> PatternLayerSignature {
+    PatternLayerSignature {
+        geometry: geometry_signature(width, height, config),
+        pattern: config.pattern.clone(),
+    }
+}
+
+fn blank_pixmap(width: u32, height: u32) -> Pixmap {
+    Pixmap::new(width, height).unwrap_or_else(|| Pixmap::new(1, 1).unwrap())
+}
+
+fn finalize_pixmap(pixmap: Pixmap) -> Vec<u8> {
+    let mut data = pixmap.take();
+    for pixel in data.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    data
+}
+
+fn render_base_layer(
+    width: u32,
+    height: u32,
+    geometry: &FrameGeometry,
+    config: &MonitorConfig,
+) -> Pixmap {
+    let mut pixmap = blank_pixmap(width, height);
+    let inner_path = get_inner_path(geometry.inner_rect, geometry.radius);
+    let paint = fill_paint_for_frame(geometry.outer_rect, config);
+    pixmap.fill_rect(geometry.outer_rect, &paint, Transform::identity(), None);
+
+    if let Some(inner_path) = &inner_path {
+        let mut clear_paint = Paint::default();
+        clear_paint.blend_mode = BlendMode::Clear;
+        clear_paint.anti_alias = true;
+        pixmap.fill_path(
+            inner_path,
+            &clear_paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+
+    pixmap
+}
+
+fn render_decor_layer(
+    width: u32,
+    height: u32,
+    geometry: &FrameGeometry,
+    config: &MonitorConfig,
+) -> Option<Pixmap> {
+    let mut pixmap = blank_pixmap(width, height);
+    let inner_path = get_inner_path(geometry.inner_rect, geometry.radius);
+    let mut drew_anything = false;
+
+    let hw = config.highlight_width.unwrap_or(3.0);
+    if hw > 0.0 {
+        if let Some(highlight_rect) = Rect::from_xywh(
+            geometry.outer_rect.left() + hw / 2.0,
+            geometry.outer_rect.top() + hw / 2.0,
+            geometry.outer_rect.width() - hw,
+            geometry.outer_rect.height() - hw,
+        ) {
+            let mut pb = PathBuilder::new();
+            push_rounded_rect(&mut pb, highlight_rect, 0.0);
+            if let Some(path) = pb.finish() {
+                let mut stroke_paint = Paint::default();
+                stroke_paint.set_color(parse_hex_color(
+                    config.highlight_color.as_deref().unwrap_or("#FFFFFF22"),
+                    config.opacity.unwrap_or(1.0),
+                ));
+                stroke_paint.anti_alias = true;
+                let mut stroke = Stroke::default();
+                stroke.width = hw;
+                pixmap.stroke_path(
+                    &path,
+                    &stroke_paint,
+                    &stroke,
+                    Transform::identity(),
+                    None,
+                );
+                drew_anything = true;
             }
         }
+    }
 
-        let sw = config.shadow_width.unwrap_or(12.0);
-        if sw > 0.0 {
-            let shadow_c = parse_hex_color(
-                config.shadow_color.as_deref().unwrap_or("#000000AA"),
-                config.opacity.unwrap_or(1.0),
-            );
-            let steps = sw.ceil() as usize;
-            if steps > 0 {
-                let total_a = shadow_c.alpha();
-                let a_step = 1.0 - (1.0 - total_a).powf(1.0 / steps as f32);
-
-                let step_color = tiny_skia::Color::from_rgba(
-                    shadow_c.red(),
-                    shadow_c.green(),
-                    shadow_c.blue(),
-                    a_step,
-                )
-                .unwrap_or_else(|| tiny_skia::Color::BLACK);
-
-                let mut stroke_paint = Paint::default();
-                stroke_paint.set_color(step_color);
-                stroke_paint.anti_alias = true;
-
+    let sw = config.shadow_width.unwrap_or(12.0);
+    if sw > 0.0 {
+        let shadow_c = parse_hex_color(
+            config.shadow_color.as_deref().unwrap_or("#000000AA"),
+            config.opacity.unwrap_or(1.0),
+        );
+        let steps = sw.ceil() as usize;
+        if steps > 0 {
+            let total_a = shadow_c.alpha();
+            let a_step = 1.0 - (1.0 - total_a).powf(1.0 / steps as f32);
+            let step_color = tiny_skia::Color::from_rgba(
+                shadow_c.red(),
+                shadow_c.green(),
+                shadow_c.blue(),
+                a_step,
+            )
+            .unwrap_or_else(|| tiny_skia::Color::BLACK);
+            let mut stroke_paint = Paint::default();
+            stroke_paint.set_color(step_color);
+            stroke_paint.anti_alias = true;
+            if let Some(inner_path) = &inner_path {
                 for i in 0..steps {
                     let cur_sw = sw - (i as f32);
                     if cur_sw <= 0.0 {
                         continue;
                     }
-
-                    let mut pb = PathBuilder::new();
-                    push_rounded_rect(&mut pb, geometry.inner_rect, geometry.radius);
-                    if let Some(path) = pb.finish() {
-                        let mut stroke = Stroke::default();
-                        stroke.width = cur_sw * 2.0;
-                        pixmap.stroke_path(
-                            &path,
-                            &stroke_paint,
-                            &stroke,
-                            Transform::identity(),
-                            None,
-                        );
-                    }
+                    let mut stroke = Stroke::default();
+                    stroke.width = cur_sw * 2.0;
+                    pixmap.stroke_path(
+                        inner_path,
+                        &stroke_paint,
+                        &stroke,
+                        Transform::identity(),
+                        None,
+                    );
+                    drew_anything = true;
                 }
             }
         }
+    }
 
-        if let Some(path) = get_inner_path(geometry.inner_rect, geometry.radius) {
-            let mut clear_paint = Paint::default();
-            clear_paint.blend_mode = BlendMode::Clear;
-            clear_paint.anti_alias = true;
-            pixmap.fill_path(
-                &path,
-                &clear_paint,
-                FillRule::Winding,
+    if drew_anything {
+        Some(pixmap)
+    } else {
+        None
+    }
+}
+
+fn render_inner_shadow_layer(
+    width: u32,
+    height: u32,
+    geometry: &FrameGeometry,
+    config: &MonitorConfig,
+) -> Option<Pixmap> {
+    let ish_config = config.inner_shadow.as_ref()?;
+    if !ish_config.enabled.unwrap_or(false) || ish_config.size.unwrap_or(0.0) <= 0.0 {
+        return None;
+    }
+    let mut pixmap = blank_pixmap(width, height);
+    draw_inner_shadow(&mut pixmap, geometry.inner_rect, geometry.radius, ish_config);
+    Some(pixmap)
+}
+
+fn render_pattern_layer(
+    width: u32,
+    height: u32,
+    geometry: &FrameGeometry,
+    config: &MonitorConfig,
+) -> Option<Pixmap> {
+    let p_config = config.pattern.as_ref()?;
+    if !p_config.enabled.unwrap_or(false) {
+        return None;
+    }
+    let mut pixmap = blank_pixmap(width, height);
+    draw_pattern(
+        &mut pixmap,
+        geometry.outer_rect,
+        geometry.inner_rect,
+        geometry.radius,
+        p_config,
+    );
+    Some(pixmap)
+}
+
+impl FrameRenderCache {
+    pub fn draw_frame(&mut self, width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
+        let geometry_sig = geometry_signature(width, height, config);
+        if self.geometry_signature.as_ref() != Some(&geometry_sig) {
+            self.geometry = compute_frame_geometry(width, height, config);
+            self.geometry_signature = Some(geometry_sig.clone());
+            self.base_signature = None;
+            self.base_layer = None;
+            self.decor_signature = None;
+            self.decor_layer = None;
+            self.inner_shadow_signature = None;
+            self.inner_shadow_layer = None;
+            self.pattern_signature = None;
+            self.pattern_layer = None;
+        }
+
+        let Some(geometry) = self.geometry.as_ref() else {
+            return finalize_pixmap(blank_pixmap(width, height));
+        };
+
+        let base_sig = base_layer_signature(width, height, config);
+        if self.base_signature.as_ref() != Some(&base_sig) {
+            self.base_layer = Some(render_base_layer(width, height, geometry, config));
+            self.base_signature = Some(base_sig);
+        }
+
+        let decor_sig = decor_layer_signature(width, height, config);
+        if self.decor_signature.as_ref() != Some(&decor_sig) {
+            self.decor_layer = render_decor_layer(width, height, geometry, config);
+            self.decor_signature = Some(decor_sig);
+        }
+
+        let inner_shadow_sig = inner_shadow_layer_signature(width, height, config);
+        if self.inner_shadow_signature.as_ref() != Some(&inner_shadow_sig) {
+            self.inner_shadow_layer = render_inner_shadow_layer(width, height, geometry, config);
+            self.inner_shadow_signature = Some(inner_shadow_sig);
+        }
+
+        let pattern_sig = pattern_layer_signature(width, height, config);
+        if self.pattern_signature.as_ref() != Some(&pattern_sig) {
+            self.pattern_layer = render_pattern_layer(width, height, geometry, config);
+            self.pattern_signature = Some(pattern_sig);
+        }
+
+        let mut pixmap = blank_pixmap(width, height);
+        if let Some(layer) = &self.base_layer {
+            pixmap.draw_pixmap(
+                0,
+                0,
+                layer.as_ref(),
+                &PixmapPaint::default(),
+                Transform::identity(),
+                None,
+            );
+        }
+        if let Some(layer) = &self.decor_layer {
+            pixmap.draw_pixmap(
+                0,
+                0,
+                layer.as_ref(),
+                &PixmapPaint::default(),
+                Transform::identity(),
+                None,
+            );
+        }
+        if let Some(layer) = &self.inner_shadow_layer {
+            pixmap.draw_pixmap(
+                0,
+                0,
+                layer.as_ref(),
+                &PixmapPaint::default(),
+                Transform::identity(),
+                None,
+            );
+        }
+        if let Some(layer) = &self.pattern_layer {
+            pixmap.draw_pixmap(
+                0,
+                0,
+                layer.as_ref(),
+                &PixmapPaint::default(),
                 Transform::identity(),
                 None,
             );
         }
 
-        if let Some(ish_config) = &config.inner_shadow {
-            draw_inner_shadow(&mut pixmap, geometry.inner_rect, geometry.radius, ish_config);
-        }
-
-        if let Some(p_config) = &config.pattern {
-            if let Some(mut pattern_pixmap) = Pixmap::new(width, height) {
-                draw_pattern(
-                    &mut pattern_pixmap,
-                    geometry.outer_rect,
-                    geometry.inner_rect,
-                    geometry.radius,
-                    p_config,
-                );
-                pixmap.draw_pixmap(
-                    0,
-                    0,
-                    pattern_pixmap.as_ref(),
-                    &tiny_skia::PixmapPaint::default(),
-                    Transform::identity(),
-                    None,
-                );
-            }
-        }
+        finalize_pixmap(pixmap)
     }
+}
 
-    let mut data = pixmap.take();
-    // Wayland's Argb8888 format is little-endian BGRA bytes.
-    for pixel in data.chunks_exact_mut(4) {
-        pixel.swap(0, 2);
-    }
-    data
+pub fn draw_frame(width: u32, height: u32, config: &MonitorConfig) -> Vec<u8> {
+    let mut cache = FrameRenderCache::default();
+    cache.draw_frame(width, height, config)
 }
 
 fn parse_hex_color(hex: &str, alpha: f32) -> Color {

@@ -37,6 +37,8 @@ pub struct State {
     pub output_ids: HashMap<u32, u32>,
     pub output_scales: HashMap<u32, u32>,
     pub output_transforms: HashMap<u32, wl_output::Transform>,
+    pub render_caches: HashMap<u32, crate::render::FrameRenderCache>,
+    pub last_reload_at: Option<std::time::Instant>,
     pub fullscreen_hidden: HashSet<u32>,
     pub watcher: Option<notify::RecommendedWatcher>,
 }
@@ -126,7 +128,11 @@ impl State {
         } else {
             let m_config = self.config.for_monitor(&output_name);
             if m_config.enabled.unwrap_or(true) {
-                crate::render::draw_frame(width, height, &m_config)
+                self
+                    .render_caches
+                    .entry(surface_id)
+                    .or_default()
+                    .draw_frame(width, height, &m_config)
             } else {
                 vec![0; (width * height * 4) as usize]
             }
@@ -336,6 +342,7 @@ impl State {
         self.output_ids.remove(&surface_id);
         self.output_scales.remove(&surface_id);
         self.output_transforms.remove(&surface_id);
+        self.render_caches.remove(&surface_id);
         self.fullscreen_hidden.remove(&surface_id);
     }
 
