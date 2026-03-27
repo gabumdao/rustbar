@@ -227,6 +227,94 @@ fn draw_inner_shadow(
     }
 }
 
+
+#[derive(Clone, Copy)]
+enum PatternSide {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+struct PreparedMotif {
+    pixmap: Pixmap,
+    tinted_pixmap: Option<Pixmap>,
+    motif_w: f32,
+    motif_h: f32,
+    oversample: f32,
+}
+
+fn pattern_source_for_side<'a>(config: &'a MonitorPatternConfig, side: PatternSide) -> Option<&'a str> {
+    config
+        .sources
+        .as_ref()
+        .and_then(|sources| match side {
+            PatternSide::Top => sources.top.as_deref(),
+            PatternSide::Bottom => sources.bottom.as_deref(),
+            PatternSide::Left => sources.left.as_deref(),
+            PatternSide::Right => sources.right.as_deref(),
+        })
+        .or(config.source.as_deref())
+}
+
+fn prepare_motif(
+    source: &str,
+    config: &MonitorPatternConfig,
+    target_extent: f32,
+) -> Option<PreparedMotif> {
+    let svg_path = PatternConfig::resolve_svg_path(source);
+    let tree = load_svg_tree(&svg_path).ok()?;
+
+    let motif_size = tree.size();
+    let intrinsic_max = motif_size.width().max(motif_size.height()).max(1.0);
+    let motif_scale = target_extent / intrinsic_max;
+    let motif_w = motif_size.width() * motif_scale;
+    let motif_h = motif_size.height() * motif_scale;
+    if motif_w <= 0.0 || motif_h <= 0.0 {
+        warn!(
+            "SVG motif has zero size after scaling: {}x{}",
+            motif_w, motif_h
+        );
+        return None;
+    }
+
+    let oversample = 2.0;
+    let mut motif_pixmap = Pixmap::new(
+        (motif_w * oversample).ceil() as u32,
+        (motif_h * oversample).ceil() as u32,
+    )?;
+
+    let motif_transform = Transform::from_scale(
+        motif_pixmap.width() as f32 / motif_size.width(),
+        motif_pixmap.height() as f32 / motif_size.height(),
+    );
+    resvg::render(&tree, motif_transform, &mut motif_pixmap.as_mut());
+
+    let tint_color = config
+        .color
+        .as_ref()
+        .map(|tint_hex| parse_hex_color(tint_hex, config.opacity.unwrap_or(1.0)));
+    let tinted_motif_pixmap = tint_color.and_then(|tint| {
+        let mut tinted = Pixmap::new(motif_pixmap.width(), motif_pixmap.height())?;
+        let target_rect =
+            Rect::from_xywh(0.0, 0.0, tinted.width() as f32, tinted.height() as f32)?;
+        let mask = tiny_skia::Mask::from_pixmap(motif_pixmap.as_ref(), tiny_skia::MaskType::Alpha);
+        let mut paint = Paint::default();
+        paint.set_color(tint);
+        paint.anti_alias = true;
+        tinted.fill_rect(target_rect, &paint, Transform::identity(), Some(&mask));
+        Some(tinted)
+    });
+
+    Some(PreparedMotif {
+        pixmap: motif_pixmap,
+        tinted_pixmap: tinted_motif_pixmap,
+        motif_w,
+        motif_h,
+        oversample,
+    })
+}
+
 fn draw_pattern(
     pixmap: &mut Pixmap,
     outer_rect: Rect,
@@ -237,17 +325,6 @@ fn draw_pattern(
     if !config.enabled.unwrap_or(false) {
         return;
     }
-    let source = match &config.source {
-        Some(s) => s,
-        None => return,
-    };
-
-    let svg_path = PatternConfig::resolve_svg_path(source);
-    let tree = match load_svg_tree(&svg_path) {
-        Ok(tree) => tree,
-        Err(_) => return,
-    };
-
     let transform_config = config.transform.clone().unwrap_or_default();
     let repeat_config = config.repeat.clone().unwrap_or_default();
     let sides_config = config.sides.clone().unwrap_or_default();
@@ -259,7 +336,6 @@ fn draw_pattern(
     let t_left = inner_rect.left() - outer_rect.left();
     let t_right = outer_rect.right() - inner_rect.right();
 
-    let motif_size = tree.size();
     let base_extent = [
         (sides_config.top, t_top),
         (sides_config.bottom, t_bottom),
@@ -281,112 +357,10 @@ fn draw_pattern(
         24.0
     };
     let target_extent = (base_extent * transform_config.scale.max(0.01)).max(1.0);
-    let intrinsic_max = motif_size.width().max(motif_size.height()).max(1.0);
-    let motif_scale = target_extent / intrinsic_max;
-    let motif_w = motif_size.width() * motif_scale;
-    let motif_h = motif_size.height() * motif_scale;
-
-    if motif_w <= 0.0 || motif_h <= 0.0 {
-        warn!(
-            "SVG motif has zero size after scaling: {}x{}",
-            motif_w, motif_h
-        );
-        return;
-    }
-
-    // Render the SVG slightly oversized, then downsample when stamping to keep edges smooth.
-    let oversample = 2.0;
-    let mut motif_pixmap = match Pixmap::new(
-        (motif_w * oversample).ceil() as u32,
-        (motif_h * oversample).ceil() as u32,
-    ) {
-        Some(p) => p,
-        None => return,
-    };
-
-    let motif_transform = Transform::from_scale(
-        motif_pixmap.width() as f32 / motif_size.width(),
-        motif_pixmap.height() as f32 / motif_size.height(),
-    );
-
-    resvg::render(&tree, motif_transform, &mut motif_pixmap.as_mut());
-
-    let tint_color = config
-        .color
-        .as_ref()
-        .map(|tint_hex| parse_hex_color(tint_hex, config.opacity.unwrap_or(1.0)));
-    let tinted_motif_pixmap = tint_color.and_then(|tint| {
-        let mut tinted = Pixmap::new(motif_pixmap.width(), motif_pixmap.height())?;
-        let target_rect = Rect::from_xywh(0.0, 0.0, tinted.width() as f32, tinted.height() as f32)?;
-        let mask = tiny_skia::Mask::from_pixmap(motif_pixmap.as_ref(), tiny_skia::MaskType::Alpha);
-        let mut paint = Paint::default();
-        paint.set_color(tint);
-        paint.anti_alias = true;
-        tinted.fill_rect(target_rect, &paint, Transform::identity(), Some(&mask));
-        Some(tinted)
-    });
 
     let seed = config.seed.unwrap_or(0);
     let mut rng = SimpleRng::new(seed);
-
-    let draw_at = |p: &mut Pixmap, x: f32, y: f32, angle: f32, rng: &mut SimpleRng| {
-        let j_rotation = if repeat_config.jitter_rotation != 0.0 {
-            rng.next_f32_range(
-                -repeat_config.jitter_rotation,
-                repeat_config.jitter_rotation,
-            )
-        } else {
-            0.0
-        };
-
-        let j_scale = if repeat_config.jitter_scale != 0.0 {
-            1.0 + rng.next_f32_range(-repeat_config.jitter_scale, repeat_config.jitter_scale)
-        } else {
-            1.0
-        };
-
-        let scale_x = if transform_config.flip_x {
-            -j_scale
-        } else {
-            j_scale
-        };
-        let scale_y = if transform_config.flip_y {
-            -j_scale
-        } else {
-            j_scale
-        };
-        let mut ts = Transform::from_translate(
-            -(motif_pixmap.width() as f32) / 2.0,
-            -(motif_pixmap.height() as f32) / 2.0,
-        );
-        ts = ts.post_scale(scale_x / oversample, scale_y / oversample);
-        ts = ts.post_rotate(transform_config.rotation + angle + j_rotation);
-        ts = ts.post_translate(x, y);
-
-        let blend_mode = match config.blend.as_deref() {
-            Some("multiply") => BlendMode::Multiply,
-            Some("screen") => BlendMode::Screen,
-            Some("overlay") => BlendMode::Overlay,
-            Some("darken") => BlendMode::Darken,
-            Some("lighten") => BlendMode::Lighten,
-            _ => BlendMode::SourceOver,
-        };
-
-        let source_pixmap = tinted_motif_pixmap
-            .as_ref()
-            .map(|pixmap| pixmap.as_ref())
-            .unwrap_or_else(|| motif_pixmap.as_ref());
-
-        let mut pp = PixmapPaint::default();
-        pp.opacity = if tint_color.is_some() {
-            1.0
-        } else {
-            config.opacity.unwrap_or(1.0)
-        };
-        pp.blend_mode = blend_mode;
-        pp.quality = FilterQuality::Bicubic;
-        p.draw_pixmap(0, 0, source_pixmap, &pp, ts, None);
-    };
+    let mut motif_cache: HashMap<String, Option<PreparedMotif>> = HashMap::new();
 
     let spacing = repeat_config.spacing.max(1.0);
     let offset = repeat_config.offset;
@@ -403,24 +377,10 @@ fn draw_pattern(
     let random_mode = matches!(mode, "random" | "scatter");
     let directional_mode = matches!(mode, "horizontal" | "vertical" | "checker" | "diamond");
     let overlap_padding = layout_config.overlap_padding.max(0.0);
-    let safe_spacing = if layout_config.prevent_overlap {
-        spacing.max(motif_w.max(motif_h) + overlap_padding)
-    } else {
-        spacing
-    };
-    let safe_row_step = if layout_config.prevent_overlap {
-        motif_h.max(1.0) + overlap_padding
-    } else {
-        safe_spacing
-    };
-    let safe_col_step = if layout_config.prevent_overlap {
-        motif_w.max(1.0) + overlap_padding
-    } else {
-        safe_spacing
-    };
 
     let band_ranges = [
         (
+            PatternSide::Top,
             sides_config.top,
             0.0,
             if corners_config.avoid_corners {
@@ -437,6 +397,7 @@ fn draw_pattern(
             0.0,
         ),
         (
+            PatternSide::Bottom,
             sides_config.bottom,
             pixmap.height() as f32 - t_bottom,
             if corners_config.avoid_corners {
@@ -453,6 +414,7 @@ fn draw_pattern(
             180.0,
         ),
         (
+            PatternSide::Left,
             sides_config.left,
             0.0,
             0.0,
@@ -461,6 +423,7 @@ fn draw_pattern(
             -90.0,
         ),
         (
+            PatternSide::Right,
             sides_config.right,
             0.0,
             pixmap.width() as f32 - t_right,
@@ -470,7 +433,7 @@ fn draw_pattern(
         ),
     ];
 
-    for (enabled, y_min, x_min, y_max, x_max, side_angle) in band_ranges {
+    for (side, enabled, y_min, x_min, y_max, x_max, side_angle) in band_ranges {
         if !enabled {
             continue;
         }
@@ -480,6 +443,96 @@ fn draw_pattern(
         if width <= 0.0 || height <= 0.0 {
             continue;
         }
+
+        let Some(source) = pattern_source_for_side(config, side) else {
+            continue;
+        };
+        let Some(motif) = motif_cache
+            .entry(source.to_string())
+            .or_insert_with(|| prepare_motif(source, config, target_extent))
+            .as_ref()
+        else {
+            continue;
+        };
+        let motif_w = motif.motif_w;
+        let motif_h = motif.motif_h;
+        let oversample = motif.oversample;
+
+        let draw_at = |p: &mut Pixmap, x: f32, y: f32, angle: f32, rng: &mut SimpleRng| {
+            let j_rotation = if repeat_config.jitter_rotation != 0.0 {
+                rng.next_f32_range(
+                    -repeat_config.jitter_rotation,
+                    repeat_config.jitter_rotation,
+                )
+            } else {
+                0.0
+            };
+
+            let j_scale = if repeat_config.jitter_scale != 0.0 {
+                1.0 + rng.next_f32_range(-repeat_config.jitter_scale, repeat_config.jitter_scale)
+            } else {
+                1.0
+            };
+
+            let scale_x = if transform_config.flip_x {
+                -j_scale
+            } else {
+                j_scale
+            };
+            let scale_y = if transform_config.flip_y {
+                -j_scale
+            } else {
+                j_scale
+            };
+            let mut ts = Transform::from_translate(
+                -(motif.pixmap.width() as f32) / 2.0,
+                -(motif.pixmap.height() as f32) / 2.0,
+            );
+            ts = ts.post_scale(scale_x / oversample, scale_y / oversample);
+            ts = ts.post_rotate(transform_config.rotation + angle + j_rotation);
+            ts = ts.post_translate(x, y);
+
+            let blend_mode = match config.blend.as_deref() {
+                Some("multiply") => BlendMode::Multiply,
+                Some("screen") => BlendMode::Screen,
+                Some("overlay") => BlendMode::Overlay,
+                Some("darken") => BlendMode::Darken,
+                Some("lighten") => BlendMode::Lighten,
+                _ => BlendMode::SourceOver,
+            };
+
+            let source_pixmap = motif
+                .tinted_pixmap
+                .as_ref()
+                .map(|pixmap| pixmap.as_ref())
+                .unwrap_or_else(|| motif.pixmap.as_ref());
+
+            let mut pp = PixmapPaint::default();
+            pp.opacity = if motif.tinted_pixmap.is_some() {
+                1.0
+            } else {
+                config.opacity.unwrap_or(1.0)
+            };
+            pp.blend_mode = blend_mode;
+            pp.quality = FilterQuality::Bicubic;
+            p.draw_pixmap(0, 0, source_pixmap, &pp, ts, None);
+        };
+
+        let safe_spacing = if layout_config.prevent_overlap {
+            spacing.max(motif_w.max(motif_h) + overlap_padding)
+        } else {
+            spacing
+        };
+        let safe_row_step = if layout_config.prevent_overlap {
+            motif_h.max(1.0) + overlap_padding
+        } else {
+            safe_spacing
+        };
+        let safe_col_step = if layout_config.prevent_overlap {
+            motif_w.max(1.0) + overlap_padding
+        } else {
+            safe_spacing
+        };
 
         let center_x = (x_min + x_max) / 2.0;
         let center_y = (y_min + y_max) / 2.0;
@@ -1582,6 +1635,7 @@ mod tests {
         let base_pattern = MonitorPatternConfig {
             enabled: Some(true),
             source: Some(svg_path.display().to_string()),
+            sources: None,
             mode: Some("single".to_string()),
             opacity: Some(1.0),
             color: Some("#ffffff".to_string()),
@@ -1685,6 +1739,7 @@ mod tests {
         let pattern = MonitorPatternConfig {
             enabled: Some(true),
             source: Some(svg_path.display().to_string()),
+            sources: None,
             mode: Some("single".to_string()),
             opacity: Some(1.0),
             color: Some("#ffffff".to_string()),
@@ -1790,6 +1845,118 @@ mod tests {
     }
 
     #[test]
+    fn test_pattern_side_sources_render_different_motifs_per_edge() {
+        use std::env::temp_dir;
+        use std::fs;
+
+        use crate::config::{
+            MonitorPatternConfig, MonitorPatternSourcesConfig, PatternCornersConfig,
+            PatternLayoutConfig, PatternRepeatConfig, PatternSidesConfig,
+            PatternTransformConfig,
+        };
+
+        let top_svg = temp_dir().join("rustbar-pattern-side-top.svg");
+        fs::write(
+            &top_svg,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+<rect width="20" height="20" fill="#ff0000"/>
+</svg>"##,
+        )
+        .unwrap();
+
+        let bottom_svg = temp_dir().join("rustbar-pattern-side-bottom.svg");
+        fs::write(
+            &bottom_svg,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+<rect width="20" height="20" fill="#0000ff"/>
+</svg>"##,
+        )
+        .unwrap();
+
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(12),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
+            radius: Some(0),
+            opacity: Some(1.0),
+            color: Some("#000000".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: Some("#00000000".to_string()),
+            highlight_width: Some(0.0),
+            highlight_color: Some("#00000000".to_string()),
+            inner_shadow: None,
+            gradient: None,
+            pattern: Some(MonitorPatternConfig {
+                enabled: Some(true),
+                source: None,
+                sources: Some(MonitorPatternSourcesConfig {
+                    top: Some(top_svg.display().to_string()),
+                    bottom: Some(bottom_svg.display().to_string()),
+                    left: None,
+                    right: None,
+                }),
+                mode: Some("single".to_string()),
+                opacity: Some(1.0),
+                color: None,
+                blend: Some("normal".to_string()),
+                seed: Some(5),
+                transform: Some(PatternTransformConfig {
+                    scale: 1.4,
+                    rotation: 0.0,
+                    flip_x: false,
+                    flip_y: false,
+                }),
+                repeat: Some(PatternRepeatConfig {
+                    spacing: 24.0,
+                    offset: 0.0,
+                    jitter_spacing: 0.0,
+                    jitter_rotation: 0.0,
+                    jitter_scale: 0.0,
+                }),
+                sides: Some(PatternSidesConfig {
+                    top: true,
+                    bottom: true,
+                    left: false,
+                    right: false,
+                }),
+                corners: Some(PatternCornersConfig {
+                    avoid_corners: false,
+                    corner_padding: 0.0,
+                }),
+                layout: Some(PatternLayoutConfig {
+                    follow_edge_direction: true,
+                    clip_to_frame: true,
+                    prevent_overlap: false,
+                    overlap_padding: 0.0,
+                    angle: 45.0,
+                }),
+            }),
+            layer: None,
+        };
+
+        let pixels = draw_frame(64, 64, &config);
+        let idx = |x: usize, y: usize| (y * 64 + x) * 4;
+
+        assert_eq!(&pixels[idx(32, 6)..idx(32, 6) + 4], &[0, 0, 255, 255]);
+        assert_eq!(&pixels[idx(32, 57)..idx(32, 57) + 4], &[255, 0, 0, 255]);
+
+        let _ = fs::remove_file(top_svg);
+        let _ = fs::remove_file(bottom_svg);
+    }
+
+    #[test]
     fn test_draw_pattern_png() {
         use std::env::temp_dir;
         use std::fs;
@@ -1835,6 +2002,7 @@ mod tests {
             pattern: Some(MonitorPatternConfig {
                 enabled: Some(true),
                 source: Some(svg_path.display().to_string()),
+                sources: None,
                 mode: Some("horizontal".to_string()),
                 opacity: Some(0.4),
                 color: Some("#f7768e".to_string()),

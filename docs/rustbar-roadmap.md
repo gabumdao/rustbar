@@ -21,7 +21,7 @@ This document is the canonical reference for the current project state as verifi
 - Core Wayland layer-shell startup and per-output surface creation are implemented.
 - One logical layer-shell surface is created per detected output.
 - Decorative frame rendering is implemented with per-side thickness, inner rounded corners, outer highlight, bezel shadow, and optional inner shadow.
-- SVG pattern rendering is implemented with multiple placement modes, transform controls, side enablement, corner avoidance, clipping, deterministic seeded jitter, and basic failure logging.
+- SVG pattern rendering is implemented with multiple placement modes, transform controls, side enablement, per-side motif sources, corner avoidance, clipping, deterministic seeded jitter, and basic failure logging.
 - TOML configuration loading is implemented with defaults, monitor overrides, include support, variable expansion, and config-file live reload.
 - Output removal is handled, and new outputs can be added during sync/reload.
 - Unit tests currently cover config resolution/include behavior, rendering paths, and shell/layer mapping helpers. A live Wayland protocol trace on 2026-03-26 also confirmed per-output layer-surface creation and several shell-policy requests on Hyprland.
@@ -238,7 +238,7 @@ Checklist:
 | CRT mode | Not implemented | Mentioned conceptually only. | Treat as preset/theme work after 1.0. |
 | Old TV bezel mode | Not implemented | No dedicated mode found. | Defer as preset pack. |
 | Texture and pattern composition | Not implemented | Only SVG motif layer exists. | Design rendering stack first. |
-| Side-specific motifs | Implemented, Needs documentation | Pattern side toggles exist, but not per-side asset selection. | Document current capability; defer distinct per-side motif sources. |
+| Side-specific motifs | Implemented | Pattern configs can now provide per-side SVG sources through `[pattern.sources]`, with fallback to the global `pattern.source`. | Consider per-side pattern presets only if more workflow simplification is needed. |
 | Dedicated corner motifs | Not implemented | No corner-specific asset path or layout logic. | Consider for v1.5+. |
 | Runtime IPC / commands | Not implemented | No control socket or command interface exists. | Revisit after config/live-reload hardening. |
 | Theme integration | Not implemented | No compositor or desktop theme bridge. | Future only. |
@@ -417,7 +417,7 @@ Selected rendering strategy:
 
 ## 9. Active Verification Step
 
-The Hyprland shell/layer verification pass is now complete across shell behavior, per-monitor reload behavior, hotplug/output-change behavior, and output-aware scale/transform handling. The per-output lifecycle and monitor-override precedence are documented in the configuration guide, and the checklist now records the passing Hyprland results. The first Hyprland performance captures exposed a severe runtime issue: redraws started in the 11.6s-12.7s range, then improved into the 3.0s-4.2s range after several allocation-focused optimizations, but reload-visible updates were still blocked behind expensive serial redraws. The retained per-output layer-cache refactor is now implemented for the main frame, inner-shadow, and pattern layers. The next immediate runtime work is to rerun the performance capture and verify whether selective invalidation materially reduces redraw time and TOML color-update latency before refining cache granularity further.
+The Hyprland shell/layer verification pass is now complete across shell behavior, per-monitor reload behavior, hotplug/output-change behavior, and output-aware scale/transform handling. The per-output lifecycle and monitor-override precedence are documented in the configuration guide, and the checklist now records the passing Hyprland results. The first Hyprland performance captures exposed a severe runtime issue: redraws started in the 11.6s-12.7s range, then improved into the 3.0s-4.2s range after several allocation-focused optimizations. Release-build captures are now in a good range, with redraws around 42ms-154ms and low idle CPU after the retained-cache work. Hot reload is back to one reload per save, watcher churn has been reduced, and the SHM buffer-warning cleanup is now verified in the latest release capture: no inactive-buffer release warnings appeared, redraws stayed in the 41.773ms-145.771ms range, and idle CPU averaged 5.14%. The next immediate runtime step is to identify the next remaining render hotspot only if debug-build development ergonomics still matter, otherwise broader compositor verification can resume.
 
 ## 10. Contributor Tracking Checklist
 
@@ -454,6 +454,9 @@ The Hyprland shell/layer verification pass is now complete across shell behavior
 - [x] Added stateful debounce to coalesce duplicate config reload events
 - [x] Corrected the debounce regression that blocked legitimate hot reloads
 - [x] Changed watcher reconfiguration to diff old/new watched files instead of unwatching and rewatching everything on each reload
+- [x] Added per-side SVG motif sources through `[pattern.sources]` with config merge, validation, rendering, and tests
+- [x] Fixed SHM buffer attachment to use SCTK buffer activation and avoid inactive-buffer release warnings
+- [x] Verified in the latest release capture that inactive-buffer release warnings are gone and reload timing remains healthy
 - [x] Reran performance capture after the first optimization
 - [ ] Identify the next remaining render hotspot
 - [ ] Reduce reload latency for simple TOML color changes

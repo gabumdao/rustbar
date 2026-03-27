@@ -84,6 +84,8 @@ pub struct PatternConfig {
     #[serde(default)]
     pub sides: PatternSidesConfig,
     #[serde(default)]
+    pub sources: PatternSourcesConfig,
+    #[serde(default)]
     pub corners: PatternCornersConfig,
     #[serde(default)]
     pub layout: PatternLayoutConfig,
@@ -118,6 +120,7 @@ impl Default for PatternConfig {
             transform: PatternTransformConfig::default(),
             repeat: PatternRepeatConfig::default(),
             sides: PatternSidesConfig::default(),
+            sources: PatternSourcesConfig::default(),
             corners: PatternCornersConfig::default(),
             layout: PatternLayoutConfig::default(),
         }
@@ -312,6 +315,23 @@ impl Default for PatternSidesConfig {
             right: default_pattern_side_enabled(),
         }
     }
+}
+
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+pub struct PatternSourcesConfig {
+    pub top: Option<String>,
+    pub bottom: Option<String>,
+    pub left: Option<String>,
+    pub right: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
+pub struct MonitorPatternSourcesConfig {
+    pub top: Option<String>,
+    pub bottom: Option<String>,
+    pub left: Option<String>,
+    pub right: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -548,6 +568,7 @@ pub struct MonitorConfig {
 pub struct MonitorPatternConfig {
     pub enabled: Option<bool>,
     pub source: Option<String>,
+    pub sources: Option<MonitorPatternSourcesConfig>,
     pub mode: Option<String>,
     pub opacity: Option<f32>,
     pub color: Option<String>,
@@ -684,6 +705,28 @@ fn is_valid_gradient_mode(mode: &str) -> bool {
         mode.to_lowercase().as_str(),
         "vertical" | "horizontal" | "diagonal_down" | "diagonal_up"
     )
+}
+
+fn collect_pattern_source_entries(pattern: &MonitorPatternConfig) -> Vec<(&'static str, &str)> {
+    let mut entries = Vec::new();
+    if let Some(source) = pattern.source.as_deref() {
+        entries.push(("pattern.source", source));
+    }
+    if let Some(sources) = &pattern.sources {
+        if let Some(source) = sources.top.as_deref() {
+            entries.push(("pattern.sources.top", source));
+        }
+        if let Some(source) = sources.bottom.as_deref() {
+            entries.push(("pattern.sources.bottom", source));
+        }
+        if let Some(source) = sources.left.as_deref() {
+            entries.push(("pattern.sources.left", source));
+        }
+        if let Some(source) = sources.right.as_deref() {
+            entries.push(("pattern.sources.right", source));
+        }
+    }
+    entries
 }
 
 fn table_without_keys(
@@ -858,22 +901,25 @@ fn collect_monitor_validation_warnings(name: &str, config: &MonitorConfig) -> Ve
 
     if let Some(pattern) = &config.pattern {
         if pattern.enabled.unwrap_or(false) {
-            match pattern.source.as_deref() {
-                Some(source) => {
+            let sources = collect_pattern_source_entries(pattern);
+            if sources.is_empty() {
+                warnings.push(format!(
+                    "{} enables the pattern layer without setting pattern.source or pattern.sources.<side>",
+                    prefix
+                ));
+            } else {
+                for (label, source) in sources {
                     let resolved = PatternConfig::resolve_svg_path(source);
                     if !resolved.exists() {
                         warnings.push(format!(
-                            "{} enables pattern source='{}', but the resolved SVG path '{}' does not exist",
+                            "{} enables {}='{}', but the resolved SVG path '{}' does not exist",
                             prefix,
+                            label,
                             source,
                             resolved.display()
                         ));
                     }
                 }
-                None => warnings.push(format!(
-                    "{} enables the pattern layer without setting pattern.source",
-                    prefix
-                )),
             }
         }
 
@@ -1054,6 +1100,12 @@ impl Config {
             pattern: Some(MonitorPatternConfig {
                 enabled: Some(self.pattern.enabled),
                 source: self.pattern.source.clone(),
+                sources: Some(MonitorPatternSourcesConfig {
+                    top: self.pattern.sources.top.clone(),
+                    bottom: self.pattern.sources.bottom.clone(),
+                    left: self.pattern.sources.left.clone(),
+                    right: self.pattern.sources.right.clone(),
+                }),
                 mode: Some(self.pattern.mode.clone()),
                 opacity: Some(self.pattern.opacity),
                 color: self.pattern.color.clone(),
@@ -1178,6 +1230,32 @@ impl Config {
                         .as_ref()
                         .and_then(|s| s.source.clone())
                         .or(self.pattern.source.clone()),
+                    sources: Some(MonitorPatternSourcesConfig {
+                        top: spec
+                            .pattern
+                            .as_ref()
+                            .and_then(|s| s.sources.as_ref())
+                            .and_then(|sources| sources.top.clone())
+                            .or(self.pattern.sources.top.clone()),
+                        bottom: spec
+                            .pattern
+                            .as_ref()
+                            .and_then(|s| s.sources.as_ref())
+                            .and_then(|sources| sources.bottom.clone())
+                            .or(self.pattern.sources.bottom.clone()),
+                        left: spec
+                            .pattern
+                            .as_ref()
+                            .and_then(|s| s.sources.as_ref())
+                            .and_then(|sources| sources.left.clone())
+                            .or(self.pattern.sources.left.clone()),
+                        right: spec
+                            .pattern
+                            .as_ref()
+                            .and_then(|s| s.sources.as_ref())
+                            .and_then(|sources| sources.right.clone())
+                            .or(self.pattern.sources.right.clone()),
+                    }),
                     mode: spec
                         .pattern
                         .as_ref()
@@ -1644,6 +1722,75 @@ opacity = 0.3
     }
 
     #[test]
+    fn test_for_monitor_merges_pattern_side_sources() {
+        let mut cfg = Config::default();
+        cfg.pattern.source = Some("fallback.svg".to_string());
+        cfg.pattern.sources.top = Some("top.svg".to_string());
+        cfg.pattern.sources.left = Some("left.svg".to_string());
+
+        cfg.monitors.insert(
+            "DP-1".to_string(),
+            MonitorConfig {
+                enabled: Some(true),
+                thickness: None,
+                thickness_top: None,
+                thickness_bottom: None,
+                thickness_left: None,
+                thickness_right: None,
+                frame_sides: None,
+                margin: None,
+                margin_top: None,
+                margin_bottom: None,
+                margin_left: None,
+                margin_right: None,
+                offset_x: None,
+                offset_y: None,
+                radius: None,
+                opacity: None,
+                color: None,
+                preset: None,
+                gradient: None,
+                shadow_width: None,
+                shadow_color: None,
+                highlight_width: None,
+                highlight_color: None,
+                inner_shadow: None,
+                pattern: Some(MonitorPatternConfig {
+                    enabled: Some(true),
+                    source: None,
+                    sources: Some(MonitorPatternSourcesConfig {
+                        top: None,
+                        bottom: Some("bottom.svg".to_string()),
+                        left: None,
+                        right: Some("right.svg".to_string()),
+                    }),
+                    mode: None,
+                    opacity: None,
+                    color: None,
+                    blend: None,
+                    seed: None,
+                    transform: None,
+                    repeat: None,
+                    sides: None,
+                    corners: None,
+                    layout: None,
+                }),
+                layer: None,
+            },
+        );
+
+        let monitor = cfg.for_monitor("DP-1");
+        let pattern = monitor.pattern.expect("merged pattern config");
+        let sources = pattern.sources.expect("merged pattern sources");
+
+        assert_eq!(pattern.source.as_deref(), Some("fallback.svg"));
+        assert_eq!(sources.top.as_deref(), Some("top.svg"));
+        assert_eq!(sources.bottom.as_deref(), Some("bottom.svg"));
+        assert_eq!(sources.left.as_deref(), Some("left.svg"));
+        assert_eq!(sources.right.as_deref(), Some("right.svg"));
+    }
+
+    #[test]
     fn test_apply_presets_to_config_value_warns_for_missing_preset() {
         let mut value: toml::Value = toml::from_str(
             r##"
@@ -1752,6 +1899,7 @@ level = "overlay"
             pattern: Some(MonitorPatternConfig {
                 enabled: Some(true),
                 source: None,
+                sources: None,
                 mode: Some("spiral".to_string()),
                 opacity: Some(-0.2),
                 color: None,
@@ -1792,7 +1940,7 @@ level = "overlay"
         assert!(
             warnings
                 .iter()
-                .any(|warning| warning.contains("pattern layer without setting pattern.source"))
+                .any(|warning| warning.contains("pattern layer without setting pattern.source or pattern.sources.<side>"))
         );
         assert!(
             warnings
@@ -1861,6 +2009,7 @@ level = "overlay"
             pattern: Some(MonitorPatternConfig {
                 enabled: Some(true),
                 source: Some("definitely-missing-rustbar-test-asset".to_string()),
+                sources: None,
                 mode: Some("repeat".to_string()),
                 opacity: Some(1.0),
                 color: None,
@@ -1882,6 +2031,62 @@ level = "overlay"
                 .any(|warning| warning.contains("resolved SVG path")
                     && warning.contains("does not exist"))
         );
+    }
+
+    #[test]
+    fn test_collect_monitor_validation_warnings_reports_missing_side_pattern_asset() {
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: None,
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
+            radius: None,
+            opacity: None,
+            color: None,
+            preset: None,
+            shadow_width: None,
+            shadow_color: None,
+            highlight_width: None,
+            highlight_color: None,
+            inner_shadow: None,
+            gradient: None,
+            pattern: Some(MonitorPatternConfig {
+                enabled: Some(true),
+                source: None,
+                sources: Some(MonitorPatternSourcesConfig {
+                    top: Some("missing-top-pattern-asset".to_string()),
+                    bottom: None,
+                    left: None,
+                    right: None,
+                }),
+                mode: Some("repeat".to_string()),
+                opacity: Some(1.0),
+                color: None,
+                blend: Some("normal".to_string()),
+                seed: None,
+                transform: None,
+                repeat: None,
+                sides: None,
+                corners: None,
+                layout: None,
+            }),
+            layer: None,
+        };
+
+        let warnings = collect_monitor_validation_warnings("DP-1", &config);
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("pattern.sources.top='missing-top-pattern-asset'")));
     }
 
     #[test]

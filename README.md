@@ -15,7 +15,7 @@
 - **Live Reloading**: Automatically reloads configuration on-the-fly when it detects changes to the `rustbar.toml` file.
 - **Configurable Layer Behavior**: The layer-shell surface can be placed on `background`, `bottom`, `top`, or `overlay`, with configurable namespace, exclusive zone, click-through, and keyboard interactivity.
 - **Hyprland Fullscreen Handling**: On Hyprland, rustbar listens for monitor/fullscreen changes and hides the frame on fullscreen outputs by swapping in a transparent, non-interactive surface state.
-- **SVG Pattern Layer**: Decorative SVG motifs can be repeated along the frame bezel with configurable scaling, rotation, spacing, and jitter for highly stylized visual themes.
+- **SVG Pattern Layer**: Decorative SVG motifs can be repeated along the frame bezel with configurable scaling, rotation, spacing, jitter, and per-side motif sources for highly stylized visual themes.
 
 ## Installation
 
@@ -77,9 +77,13 @@ thickness_bottom = 20
 # --- Decorative SVG Patterns ---
 [pattern]
 enabled = true
-source = "star.svg"      # Found in ~/.config/rustbar/svg/star.svg
+source = "star.svg"      # Default source for any side without its own override
 mode = "diagonal"
 opacity = 0.2
+
+[pattern.sources]
+top = "top-star.svg"
+bottom = "bottom-star.svg"
 
 [pattern.layout]
 angle = 45.0              # Placement direction for diagonal bands

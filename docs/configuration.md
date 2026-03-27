@@ -325,7 +325,11 @@ The `[pattern]` section allows you to place repeating SVG motifs along the frame
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `enabled` | Boolean | `false` | Enable or disable the pattern layer. |
-| `source` | String | (None) | Filename of the SVG motif (e.g., `"star.svg"`). Resolved relative to `~/.config/rustbar/svg`. |
+| `source` | String | (None) | Default SVG motif used for any enabled side that does not provide a side-specific source. Resolved relative to `~/.config/rustbar/svg`. |
+| `sources.top` | String | (None) | SVG motif source used only for the top edge. Falls back to `source` when unset. |
+| `sources.bottom` | String | (None) | SVG motif source used only for the bottom edge. Falls back to `source` when unset. |
+| `sources.left` | String | (None) | SVG motif source used only for the left edge. Falls back to `source` when unset. |
+| `sources.right` | String | (None) | SVG motif source used only for the right edge. Falls back to `source` when unset. |
 | `mode` | String | `"repeat"` | Placement mode: `"repeat"`, `"single"`, `"scatter"`, `"horizontal"`, `"vertical"`, `"diagonal"`, `"diagonal_repeat"`, `"diagonal_lines"`, `"checker"`, or `"diamond"`. `diagonal*` modes place motifs along real diagonal bands, not just rotated rows. |
 | `opacity` | Float | `1.0` | Opacity of the pattern (0.0 to 1.0). |
 | `color` | String | (None) | Tint color for the SVG (hex). Replaces all SVG colors. |
@@ -339,6 +343,13 @@ Pattern asset behavior:
 - Parsed SVG trees are cached by resolved path and file modification time, so repeated redraws do not re-read and reparse unchanged assets.
 - Missing, unreadable, or invalid SVG assets currently log a warning once per asset state and then skip rendering until the file changes again.
 - Pattern tinting replaces SVG colors at draw time; the original asset file is not modified.
+
+Per-side source rules:
+
+- `[pattern.sources]` lets you choose different SVG motif files for `top`, `bottom`, `left`, and `right`.
+- If a side-specific source is unset, that side falls back to the top-level `pattern.source`.
+- If a side is disabled in `[pattern.sides]`, its source is ignored.
+- Validation warnings now mention the exact key, such as `pattern.sources.top`, when a side-specific asset is missing.
 
 ### Transform
 

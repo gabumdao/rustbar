@@ -158,13 +158,14 @@ impl State {
                     wl_shm::Format::Argb8888,
                 ) {
                     canvas.copy_from_slice(&pixels);
-                    layer.wl_surface().attach(Some(buffer.wl_buffer()), 0, 0);
-                    layer
-                        .wl_surface()
-                        .damage_buffer(0, 0, width as i32, height as i32);
-                    layer.wl_surface().commit();
-                    *active_buf = Some(buffer);
-                    committed = true;
+                    if buffer.attach_to(layer.wl_surface()).is_ok() {
+                        layer
+                            .wl_surface()
+                            .damage_buffer(0, 0, width as i32, height as i32);
+                        layer.wl_surface().commit();
+                        *active_buf = Some(buffer);
+                        committed = true;
+                    }
                 }
             }
         }
