@@ -3,15 +3,15 @@ set -eu
 
 usage() {
     cat <<'EOF'
-Usage: rustbarctl.sh <command>
+Usage: rustbarctl.sh <command> [output-name]
 
 Commands:
   reload       Reload the active config
   refresh      Redraw all active surfaces
   fullscreen   Rerun the fullscreen-state check
-  show         Force all rustbar surfaces visible
-  hide         Force all rustbar surfaces hidden
-  toggle       Toggle manual visibility for all surfaces
+  show         Force all rustbar surfaces visible, or one output if given
+  hide         Force all rustbar surfaces hidden, or one output if given
+  toggle       Toggle manual visibility for all surfaces, or one output if given
   status       Print a live rustbar status summary
   quit         Stop rustbar cleanly
   help         Show this help
@@ -19,6 +19,8 @@ EOF
 }
 
 command=${1:-help}
+shift || true
+output_name=${*:-}
 case "$command" in
     reload|refresh|fullscreen|show|hide|toggle|status|quit)
         ;;
@@ -49,12 +51,17 @@ if [ ! -S "$socket_path" ]; then
     exit 1
 fi
 
+request=$command
+if [ -n "$output_name" ]; then
+    request="$request $output_name"
+fi
+
 if command -v socat >/dev/null 2>&1; then
     printf '%s
-' "$command" | socat - UNIX-CONNECT:"$socket_path"
+' "$request" | socat - UNIX-CONNECT:"$socket_path"
 elif command -v nc >/dev/null 2>&1; then
     printf '%s
-' "$command" | nc -U "$socket_path"
+' "$request" | nc -U "$socket_path"
 else
     printf 'Need socat or netcat with Unix-socket support to talk to %s
 ' "$socket_path" >&2

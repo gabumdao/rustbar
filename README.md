@@ -13,7 +13,7 @@
 - **User-Defined Presets**: Define reusable style presets in config and apply them globally or per monitor before explicit overrides.
 - **Output-Aware Buffer Handling**: Rustbar now applies per-output buffer scale and buffer transform state so HiDPI outputs and rotated outputs can use correctly sized buffers when the compositor supports those Wayland surface features.
 - **Live Reloading**: Automatically reloads configuration on-the-fly when it detects changes to the `rustbar.toml` file.
-- **Runtime Commands**: A local control socket can trigger `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit` commands without editing config files, and the repo now ships a small `scripts/rustbarctl.sh` helper for it.
+- **Runtime Commands**: A local control socket can trigger `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit` commands without editing config files, and `show`/`hide`/`toggle` can target a single output name as well. The repo now ships a small `scripts/rustbarctl.sh` helper for it.
 - **Configurable Layer Behavior**: The layer-shell surface can be placed on `background`, `bottom`, `top`, or `overlay`, with configurable namespace, exclusive zone, click-through, and keyboard interactivity.
 - **Hyprland Fullscreen Handling**: On Hyprland, rustbar listens for monitor/fullscreen changes and hides the frame on fullscreen outputs by swapping in a transparent, non-interactive surface state.
 - **SVG Pattern Layer**: Decorative SVG motifs can be repeated along the frame bezel with configurable scaling, rotation, spacing, jitter, per-side motif sources, and dedicated corner motifs for highly stylized visual themes.
@@ -110,7 +110,7 @@ Runtime control note:
 
 - Rustbar listens on `XDG_RUNTIME_DIR/rustbar.sock` for simple commands such as `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit`.
 - Example: `printf 'reload\n' | socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/rustbar.sock"`
-- Helper: `scripts/rustbarctl.sh hide`, `scripts/rustbarctl.sh show`, or `scripts/rustbarctl.sh status`
+- Helper: `scripts/rustbarctl.sh hide`, `scripts/rustbarctl.sh show DP-1`, or `scripts/rustbarctl.sh status`
 
 Validation and logging notes:
 

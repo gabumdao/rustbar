@@ -256,9 +256,9 @@ Supported commands:
 - `reload`: reload the active config immediately
 - `refresh`: redraw all active surfaces
 - `fullscreen`: rerun the fullscreen-state check
-- `show`: force all rustbar surfaces visible
-- `hide`: force all rustbar surfaces hidden
-- `toggle`: toggle manual visibility for all rustbar surfaces
+- `show [output-name]`: force all rustbar surfaces visible, or one named output when provided
+- `hide [output-name]`: force all rustbar surfaces hidden, or one named output when provided
+- `toggle [output-name]`: toggle manual visibility for all rustbar surfaces, or one named output when provided
 - `status`: print a live runtime summary
 - `quit`: stop rustbar cleanly
 
@@ -273,8 +273,8 @@ Helper usage:
 ```bash
 scripts/rustbarctl.sh reload
 scripts/rustbarctl.sh hide
-scripts/rustbarctl.sh show
-scripts/rustbarctl.sh toggle
+scripts/rustbarctl.sh show DP-1
+scripts/rustbarctl.sh toggle HDMI-A-1
 scripts/rustbarctl.sh status
 ```
 
@@ -283,6 +283,7 @@ Current notes:
 - The socket is local to the current user session.
 - Unknown commands return a short error string instead of changing state.
 - Manual `hide` applies on top of compositor-driven fullscreen hiding; `show` clears only the manual hide state.
+- Output-scoped visibility commands match the Wayland output name rustbar is already using for monitor overrides, such as `DP-1` or `HDMI-A-1`.
 - The socket path is recreated on startup if a stale file is left behind.
 - The repository now includes `scripts/rustbarctl.sh` as a small helper around the same socket protocol.
 

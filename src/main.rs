@@ -6,7 +6,7 @@ pub mod wayland;
 use std::{io::{BufRead, BufReader, Write}, os::unix::net::UnixListener, path::PathBuf};
 use wayland_client::Connection;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IpcCommand {
     Reload,
     Refresh,
@@ -14,6 +14,9 @@ pub enum IpcCommand {
     Show,
     Hide,
     Toggle,
+    ShowOutput(String),
+    HideOutput(String),
+    ToggleOutput(String),
     Status,
     Quit,
 }
@@ -25,13 +28,27 @@ pub enum AppEvent {
 }
 
 fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
-    match input.trim().to_ascii_lowercase().as_str() {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut parts = trimmed.split_whitespace();
+    let command = parts.next()?.to_ascii_lowercase();
+    let remainder = parts.collect::<Vec<_>>().join(" ");
+    let output = if remainder.is_empty() {
+        None
+    } else {
+        Some(remainder)
+    };
+
+    match command.as_str() {
         "reload" => Some(IpcCommand::Reload),
         "refresh" => Some(IpcCommand::Refresh),
         "fullscreen" | "check-fullscreen" | "check_fullscreen" => Some(IpcCommand::CheckFullscreen),
-        "show" => Some(IpcCommand::Show),
-        "hide" => Some(IpcCommand::Hide),
-        "toggle" => Some(IpcCommand::Toggle),
+        "show" => output.map(IpcCommand::ShowOutput).or(Some(IpcCommand::Show)),
+        "hide" => output.map(IpcCommand::HideOutput).or(Some(IpcCommand::Hide)),
+        "toggle" => output.map(IpcCommand::ToggleOutput).or(Some(IpcCommand::Toggle)),
         "status" | "info" => Some(IpcCommand::Status),
         "quit" | "exit" | "stop" => Some(IpcCommand::Quit),
         _ => None,
@@ -110,6 +127,7 @@ fn run() -> Result<(), String> {
         last_reload_at: None,
         fullscreen_hidden: std::collections::HashSet::new(),
         manually_hidden: false,
+        manually_hidden_outputs: std::collections::HashSet::new(),
         watcher: None,
     };
 
@@ -419,6 +437,15 @@ fn run() -> Result<(), String> {
                             let hidden = !state.manually_hidden;
                             state.set_manual_hidden(hidden, &qh_for_reload);
                         }
+                        IpcCommand::ShowOutput(output) => {
+                            state.set_output_hidden(&output, false, &qh_for_reload);
+                        }
+                        IpcCommand::HideOutput(output) => {
+                            state.set_output_hidden(&output, true, &qh_for_reload);
+                        }
+                        IpcCommand::ToggleOutput(output) => {
+                            state.toggle_output_hidden(&output, &qh_for_reload);
+                        }
                         IpcCommand::Status => {
                             if let Some(response_tx) = response_tx {
                                 let _ = response_tx.send(state.status_summary());
@@ -453,6 +480,9 @@ mod tests {
         assert_eq!(parse_ipc_command("show"), Some(IpcCommand::Show));
         assert_eq!(parse_ipc_command("hide"), Some(IpcCommand::Hide));
         assert_eq!(parse_ipc_command("toggle"), Some(IpcCommand::Toggle));
+        assert_eq!(parse_ipc_command("show DP-1"), Some(IpcCommand::ShowOutput("DP-1".to_string())));
+        assert_eq!(parse_ipc_command("hide HDMI-A-1"), Some(IpcCommand::HideOutput("HDMI-A-1".to_string())));
+        assert_eq!(parse_ipc_command("toggle eDP-1"), Some(IpcCommand::ToggleOutput("eDP-1".to_string())));
         assert_eq!(parse_ipc_command("status"), Some(IpcCommand::Status));
         assert_eq!(parse_ipc_command("quit"), Some(IpcCommand::Quit));
     }
@@ -461,6 +491,7 @@ mod tests {
     fn parse_ipc_command_accepts_aliases_and_whitespace() {
         assert_eq!(parse_ipc_command("  check_fullscreen  "), Some(IpcCommand::CheckFullscreen));
         assert_eq!(parse_ipc_command("info"), Some(IpcCommand::Status));
+        assert_eq!(parse_ipc_command("  show   DP-1  "), Some(IpcCommand::ShowOutput("DP-1".to_string())));
         assert_eq!(parse_ipc_command("EXIT"), Some(IpcCommand::Quit));
         assert_eq!(parse_ipc_command("stop"), Some(IpcCommand::Quit));
     }

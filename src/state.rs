@@ -41,6 +41,7 @@ pub struct State {
     pub last_reload_at: Option<std::time::Instant>,
     pub fullscreen_hidden: HashSet<u32>,
     pub manually_hidden: bool,
+    pub manually_hidden_outputs: HashSet<String>,
     pub watcher: Option<notify::RecommendedWatcher>,
 }
 
@@ -190,7 +191,12 @@ impl State {
     }
 
     pub fn surface_is_hidden(&self, surface_id: u32) -> bool {
-        self.manually_hidden || self.fullscreen_hidden.contains(&surface_id)
+        let output_hidden = self
+            .output_names
+            .get(&surface_id)
+            .map(|name| self.manually_hidden_outputs.contains(name))
+            .unwrap_or(false);
+        self.manually_hidden || output_hidden || self.fullscreen_hidden.contains(&surface_id)
     }
 
     pub fn set_manual_hidden(&mut self, hidden: bool, qh: &QueueHandle<Self>) {
@@ -210,6 +216,40 @@ impl State {
         }
 
         self.refresh_all();
+    }
+
+    pub fn set_output_hidden(&mut self, output_name: &str, hidden: bool, qh: &QueueHandle<Self>) {
+        let normalized = output_name.trim();
+        if normalized.is_empty() {
+            return;
+        }
+
+        if hidden {
+            self.manually_hidden_outputs.insert(normalized.to_string());
+        } else {
+            self.manually_hidden_outputs.remove(normalized);
+        }
+
+        for layer in &self.active_surfaces {
+            let surface_id = layer.wl_surface().id().protocol_id();
+            if self.output_names.get(&surface_id).map(String::as_str) == Some(normalized) {
+                let m_config = self.config.for_monitor(normalized);
+                let layer_config = m_config.layer.unwrap_or_default();
+                let effective_hidden = self.surface_is_hidden(surface_id);
+                self.apply_layer_surface_config(layer, qh, &layer_config, effective_hidden);
+                self.refresh_surface(surface_id);
+                break;
+            }
+        }
+    }
+
+    pub fn toggle_output_hidden(&mut self, output_name: &str, qh: &QueueHandle<Self>) {
+        let normalized = output_name.trim();
+        if normalized.is_empty() {
+            return;
+        }
+        let hidden = !self.manually_hidden_outputs.contains(normalized);
+        self.set_output_hidden(normalized, hidden, qh);
     }
 
     pub fn refresh_all(&mut self) {
@@ -243,6 +283,9 @@ impl State {
         hidden_outputs.sort();
         hidden_outputs.dedup();
 
+        let mut manually_hidden_outputs: Vec<String> = self.manually_hidden_outputs.iter().cloned().collect();
+        manually_hidden_outputs.sort();
+
         format!(
             "status=ok
 config_path={}
@@ -252,6 +295,7 @@ outputs={}
 fullscreen_hidden={}
 fullscreen_outputs={}
 manually_hidden={}
+manually_hidden_outputs={}
 ",
             crate::config::Config::resolve_path().display(),
             self.config.loaded_files.len(),
@@ -268,6 +312,11 @@ manually_hidden={}
                 hidden_outputs.join(",")
             },
             self.manually_hidden,
+            if manually_hidden_outputs.is_empty() {
+                "none".to_string()
+            } else {
+                manually_hidden_outputs.join(",")
+            },
         )
     }
 
