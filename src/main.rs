@@ -9,16 +9,29 @@ use wayland_client::Connection;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IpcCommand {
     Reload,
+    ReloadJson,
     Refresh,
+    RefreshJson,
     CheckFullscreen,
+    CheckFullscreenJson,
     Show,
+    ShowJson,
     Hide,
+    HideJson,
     Toggle,
+    ToggleJson,
     ShowOutput(String),
+    ShowOutputJson(String),
     HideOutput(String),
+    HideOutputJson(String),
     ToggleOutput(String),
+    ToggleOutputJson(String),
     Status,
     StatusOutput(String),
+    StatusJson,
+    StatusOutputJson(String),
+    ListOutputs,
+    ListOutputsJson,
     Quit,
 }
 
@@ -36,21 +49,133 @@ fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
 
     let mut parts = trimmed.split_whitespace();
     let command = parts.next()?.to_ascii_lowercase();
-    let remainder = parts.collect::<Vec<_>>().join(" ");
-    let output = if remainder.is_empty() {
-        None
-    } else {
-        Some(remainder)
-    };
+    let args: Vec<&str> = parts.collect();
 
     match command.as_str() {
-        "reload" => Some(IpcCommand::Reload),
-        "refresh" => Some(IpcCommand::Refresh),
-        "fullscreen" | "check-fullscreen" | "check_fullscreen" => Some(IpcCommand::CheckFullscreen),
-        "show" => output.map(IpcCommand::ShowOutput).or(Some(IpcCommand::Show)),
-        "hide" => output.map(IpcCommand::HideOutput).or(Some(IpcCommand::Hide)),
-        "toggle" => output.map(IpcCommand::ToggleOutput).or(Some(IpcCommand::Toggle)),
-        "status" | "info" => output.map(IpcCommand::StatusOutput).or(Some(IpcCommand::Status)),
+        "reload" => {
+            let mut json = false;
+            for arg in args {
+                if arg == "--json" {
+                    json = true;
+                } else {
+                    return None;
+                }
+            }
+            Some(if json { IpcCommand::ReloadJson } else { IpcCommand::Reload })
+        }
+        "refresh" => {
+            let mut json = false;
+            for arg in args {
+                if arg == "--json" {
+                    json = true;
+                } else {
+                    return None;
+                }
+            }
+            Some(if json { IpcCommand::RefreshJson } else { IpcCommand::Refresh })
+        }
+        "fullscreen" | "check-fullscreen" | "check_fullscreen" => {
+            let mut json = false;
+            for arg in args {
+                if arg == "--json" {
+                    json = true;
+                } else {
+                    return None;
+                }
+            }
+            Some(if json {
+                IpcCommand::CheckFullscreenJson
+            } else {
+                IpcCommand::CheckFullscreen
+            })
+        }
+        "show" => {
+            let mut json = false;
+            let mut filtered = Vec::new();
+            for arg in args {
+                if arg == "--json" {
+                    json = true;
+                } else {
+                    filtered.push(arg);
+                }
+            }
+            let output = filtered.join(" ");
+            match (json, output.is_empty()) {
+                (false, true) => Some(IpcCommand::Show),
+                (true, true) => Some(IpcCommand::ShowJson),
+                (false, false) => Some(IpcCommand::ShowOutput(output)),
+                (true, false) => Some(IpcCommand::ShowOutputJson(output)),
+            }
+        }
+        "hide" => {
+            let mut json = false;
+            let mut filtered = Vec::new();
+            for arg in args {
+                if arg == "--json" {
+                    json = true;
+                } else {
+                    filtered.push(arg);
+                }
+            }
+            let output = filtered.join(" ");
+            match (json, output.is_empty()) {
+                (false, true) => Some(IpcCommand::Hide),
+                (true, true) => Some(IpcCommand::HideJson),
+                (false, false) => Some(IpcCommand::HideOutput(output)),
+                (true, false) => Some(IpcCommand::HideOutputJson(output)),
+            }
+        }
+        "toggle" => {
+            let mut json = false;
+            let mut filtered = Vec::new();
+            for arg in args {
+                if arg == "--json" {
+                    json = true;
+                } else {
+                    filtered.push(arg);
+                }
+            }
+            let output = filtered.join(" ");
+            match (json, output.is_empty()) {
+                (false, true) => Some(IpcCommand::Toggle),
+                (true, true) => Some(IpcCommand::ToggleJson),
+                (false, false) => Some(IpcCommand::ToggleOutput(output)),
+                (true, false) => Some(IpcCommand::ToggleOutputJson(output)),
+            }
+        }
+        "status" | "info" => {
+            let mut json = false;
+            let mut filtered = Vec::new();
+            for arg in args {
+                if arg == "--json" {
+                    json = true;
+                } else {
+                    filtered.push(arg);
+                }
+            }
+            let output = filtered.join(" ");
+            match (json, output.is_empty()) {
+                (false, true) => Some(IpcCommand::Status),
+                (false, false) => Some(IpcCommand::StatusOutput(output)),
+                (true, true) => Some(IpcCommand::StatusJson),
+                (true, false) => Some(IpcCommand::StatusOutputJson(output)),
+            }
+        }
+        "list-outputs" | "list_outputs" | "outputs" => {
+            let mut json = false;
+            for arg in args {
+                if arg == "--json" {
+                    json = true;
+                } else {
+                    return None;
+                }
+            }
+            Some(if json {
+                IpcCommand::ListOutputsJson
+            } else {
+                IpcCommand::ListOutputs
+            })
+        }
         "quit" | "exit" | "stop" => Some(IpcCommand::Quit),
         _ => None,
     }
@@ -224,7 +349,7 @@ fn run() -> Result<(), String> {
                         let trimmed = line.trim();
                         match parse_ipc_command(trimmed) {
                             Some(command) => {
-                                let wants_response = matches!(command, IpcCommand::Status);
+                                let wants_response = matches!(command, IpcCommand::Reload | IpcCommand::ReloadJson | IpcCommand::Refresh | IpcCommand::RefreshJson | IpcCommand::CheckFullscreen | IpcCommand::CheckFullscreenJson | IpcCommand::ShowJson | IpcCommand::HideJson | IpcCommand::ToggleJson | IpcCommand::ShowOutputJson(_) | IpcCommand::HideOutputJson(_) | IpcCommand::ToggleOutputJson(_) | IpcCommand::Status | IpcCommand::StatusOutput(_) | IpcCommand::StatusJson | IpcCommand::StatusOutputJson(_) | IpcCommand::ListOutputs | IpcCommand::ListOutputsJson | IpcCommand::Show | IpcCommand::Hide | IpcCommand::Toggle | IpcCommand::ShowOutput(_) | IpcCommand::HideOutput(_) | IpcCommand::ToggleOutput(_));
                                 let response = if wants_response {
                                     let (tx_response, rx_response) = std::sync::mpsc::channel();
                                     match tx_control.send(AppEvent::Command(command, Some(tx_response))) {
@@ -243,7 +368,7 @@ fn run() -> Result<(), String> {
                             }
                             None => {
                                 let _ = stream.write_all(
-                                    b"error: unknown command. use reload, refresh, fullscreen, show, hide, toggle, status, or quit\n",
+                                    b"error: unknown command. use reload [--json], refresh [--json], fullscreen [--json], show [--json], hide [--json], toggle [--json], status [--json], list-outputs [--json], or quit\n",
                                 );
                             }
                         }
@@ -367,6 +492,9 @@ fn run() -> Result<(), String> {
                                 .map(|last| now.saturating_duration_since(last) < debounce_window)
                                 .unwrap_or(false)
                             {
+                                if let Some(response_tx) = response_tx {
+                                    let _ = response_tx.send(state.status_summary());
+                                }
                                 return;
                             }
                             state.last_reload_at = Some(now);
@@ -421,31 +549,176 @@ fn run() -> Result<(), String> {
                                     );
                                 }
                             }
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary());
+                            }
+                        }
+                        IpcCommand::ReloadJson => {
+                            let now = std::time::Instant::now();
+                            let debounce_window = std::time::Duration::from_millis(200);
+                            if state
+                                .last_reload_at
+                                .map(|last| now.saturating_duration_since(last) < debounce_window)
+                                .unwrap_or(false)
+                            {
+                                if let Some(response_tx) = response_tx {
+                                    let _ = response_tx.send(state.status_summary_json());
+                                }
+                                return;
+                            }
+                            state.last_reload_at = Some(now);
+                            let resolved_path = config::Config::resolve_path();
+                            match config::Config::try_load_default() {
+                                Ok(new_config) => {
+                                    let old_files = state.config.loaded_files.clone();
+                                    log::info!(
+                                        "Reloaded config from {} ({} file(s) including includes)",
+                                        resolved_path.display(),
+                                        new_config.loaded_files.len()
+                                    );
+                                    state.config = new_config;
+
+                                    if let Some(watcher) = &mut state.watcher {
+                                        use notify::Watcher;
+                                        let old_set: std::collections::BTreeSet<_> =
+                                            old_files.iter().cloned().collect();
+                                        let new_set: std::collections::BTreeSet<_> =
+                                            state.config.loaded_files.iter().cloned().collect();
+
+                                        for f in old_set.difference(&new_set) {
+                                            if let Err(err) = watcher.unwatch(f) {
+                                                log::warn!(
+                                                    "Failed to stop watching old config file {}: {}",
+                                                    f.display(),
+                                                    err
+                                                );
+                                            }
+                                        }
+                                        for f in new_set.difference(&old_set) {
+                                            if let Err(err) =
+                                                watcher.watch(f, notify::RecursiveMode::NonRecursive)
+                                            {
+                                                log::warn!(
+                                                    "Failed to watch config file {} after reload: {}",
+                                                    f.display(),
+                                                    err
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    state.sync_outputs(&conn_for_reload, &qh_for_reload);
+                                    state.refresh_all();
+                                }
+                                Err(err) => {
+                                    log::warn!(
+                                        "Skipping config reload for {} and keeping the previous config. Error: {}",
+                                        resolved_path.display(),
+                                        err
+                                    );
+                                }
+                            }
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_json());
+                            }
                         }
                         IpcCommand::Refresh => {
                             state.refresh_all();
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary());
+                            }
+                        }
+                        IpcCommand::RefreshJson => {
+                            state.refresh_all();
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_json());
+                            }
                         }
                         IpcCommand::CheckFullscreen => {
                             state.update_fullscreen(&qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary());
+                            }
+                        }
+                        IpcCommand::CheckFullscreenJson => {
+                            state.update_fullscreen(&qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_json());
+                            }
                         }
                         IpcCommand::Show => {
                             state.set_manual_hidden(false, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary());
+                            }
+                        }
+                        IpcCommand::ShowJson => {
+                            state.set_manual_hidden(false, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_json());
+                            }
                         }
                         IpcCommand::Hide => {
                             state.set_manual_hidden(true, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary());
+                            }
+                        }
+                        IpcCommand::HideJson => {
+                            state.set_manual_hidden(true, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_json());
+                            }
                         }
                         IpcCommand::Toggle => {
                             let hidden = !state.manually_hidden;
                             state.set_manual_hidden(hidden, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary());
+                            }
+                        }
+                        IpcCommand::ToggleJson => {
+                            let hidden = !state.manually_hidden;
+                            state.set_manual_hidden(hidden, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_json());
+                            }
                         }
                         IpcCommand::ShowOutput(output) => {
                             state.set_output_hidden(&output, false, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_for_output(&output));
+                            }
+                        }
+                        IpcCommand::ShowOutputJson(output) => {
+                            state.set_output_hidden(&output, false, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_for_output_json(&output));
+                            }
                         }
                         IpcCommand::HideOutput(output) => {
                             state.set_output_hidden(&output, true, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_for_output(&output));
+                            }
+                        }
+                        IpcCommand::HideOutputJson(output) => {
+                            state.set_output_hidden(&output, true, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_for_output_json(&output));
+                            }
                         }
                         IpcCommand::ToggleOutput(output) => {
                             state.toggle_output_hidden(&output, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_for_output(&output));
+                            }
+                        }
+                        IpcCommand::ToggleOutputJson(output) => {
+                            state.toggle_output_hidden(&output, &qh_for_reload);
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_for_output_json(&output));
+                            }
                         }
                         IpcCommand::Status => {
                             if let Some(response_tx) = response_tx {
@@ -455,6 +728,26 @@ fn run() -> Result<(), String> {
                         IpcCommand::StatusOutput(output) => {
                             if let Some(response_tx) = response_tx {
                                 let _ = response_tx.send(state.status_summary_for_output(&output));
+                            }
+                        }
+                        IpcCommand::StatusJson => {
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_json());
+                            }
+                        }
+                        IpcCommand::StatusOutputJson(output) => {
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_for_output_json(&output));
+                            }
+                        }
+                        IpcCommand::ListOutputs => {
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.list_outputs_summary());
+                            }
+                        }
+                        IpcCommand::ListOutputsJson => {
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.list_outputs_summary_json());
                             }
                         }
                         IpcCommand::Quit => {
@@ -481,8 +774,11 @@ mod tests {
     #[test]
     fn parse_ipc_command_recognizes_supported_commands() {
         assert_eq!(parse_ipc_command("reload"), Some(IpcCommand::Reload));
+        assert_eq!(parse_ipc_command("reload --json"), Some(IpcCommand::ReloadJson));
         assert_eq!(parse_ipc_command("refresh"), Some(IpcCommand::Refresh));
+        assert_eq!(parse_ipc_command("refresh --json"), Some(IpcCommand::RefreshJson));
         assert_eq!(parse_ipc_command("fullscreen"), Some(IpcCommand::CheckFullscreen));
+        assert_eq!(parse_ipc_command("fullscreen --json"), Some(IpcCommand::CheckFullscreenJson));
         assert_eq!(parse_ipc_command("show"), Some(IpcCommand::Show));
         assert_eq!(parse_ipc_command("hide"), Some(IpcCommand::Hide));
         assert_eq!(parse_ipc_command("toggle"), Some(IpcCommand::Toggle));
@@ -491,15 +787,27 @@ mod tests {
         assert_eq!(parse_ipc_command("toggle eDP-1"), Some(IpcCommand::ToggleOutput("eDP-1".to_string())));
         assert_eq!(parse_ipc_command("status"), Some(IpcCommand::Status));
         assert_eq!(parse_ipc_command("status DP-1"), Some(IpcCommand::StatusOutput("DP-1".to_string())));
+        assert_eq!(parse_ipc_command("show --json"), Some(IpcCommand::ShowJson));
+        assert_eq!(parse_ipc_command("hide DP-1 --json"), Some(IpcCommand::HideOutputJson("DP-1".to_string())));
+        assert_eq!(parse_ipc_command("toggle HDMI-A-1 --json"), Some(IpcCommand::ToggleOutputJson("HDMI-A-1".to_string())));
+        assert_eq!(parse_ipc_command("status --json"), Some(IpcCommand::StatusJson));
+        assert_eq!(parse_ipc_command("status DP-1 --json"), Some(IpcCommand::StatusOutputJson("DP-1".to_string())));
+        assert_eq!(parse_ipc_command("list-outputs"), Some(IpcCommand::ListOutputs));
+        assert_eq!(parse_ipc_command("list-outputs --json"), Some(IpcCommand::ListOutputsJson));
         assert_eq!(parse_ipc_command("quit"), Some(IpcCommand::Quit));
     }
 
     #[test]
     fn parse_ipc_command_accepts_aliases_and_whitespace() {
         assert_eq!(parse_ipc_command("  check_fullscreen  "), Some(IpcCommand::CheckFullscreen));
+        assert_eq!(parse_ipc_command("check-fullscreen --json"), Some(IpcCommand::CheckFullscreenJson));
         assert_eq!(parse_ipc_command("info"), Some(IpcCommand::Status));
         assert_eq!(parse_ipc_command("info HDMI-A-1"), Some(IpcCommand::StatusOutput("HDMI-A-1".to_string())));
+        assert_eq!(parse_ipc_command("info HDMI-A-1 --json"), Some(IpcCommand::StatusOutputJson("HDMI-A-1".to_string())));
+        assert_eq!(parse_ipc_command("outputs"), Some(IpcCommand::ListOutputs));
+        assert_eq!(parse_ipc_command("outputs --json"), Some(IpcCommand::ListOutputsJson));
         assert_eq!(parse_ipc_command("  show   DP-1  "), Some(IpcCommand::ShowOutput("DP-1".to_string())));
+        assert_eq!(parse_ipc_command("  refresh   --json  "), Some(IpcCommand::RefreshJson));
         assert_eq!(parse_ipc_command("EXIT"), Some(IpcCommand::Quit));
         assert_eq!(parse_ipc_command("stop"), Some(IpcCommand::Quit));
     }
@@ -507,6 +815,9 @@ mod tests {
     #[test]
     fn parse_ipc_command_rejects_unknown_commands() {
         assert_eq!(parse_ipc_command("bogus"), None);
+        assert_eq!(parse_ipc_command("list-outputs DP-1"), None);
+        assert_eq!(parse_ipc_command("reload now"), None);
+        assert_eq!(parse_ipc_command("fullscreen now"), None);
         assert_eq!(parse_ipc_command(""), None);
     }
 }

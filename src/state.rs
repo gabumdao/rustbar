@@ -1,4 +1,5 @@
 use log::debug;
+use serde_json::json;
 use smithay_client_toolkit::{
     compositor::CompositorState,
     output::OutputState,
@@ -373,6 +374,174 @@ effective_hidden={}
         )
     }
 
+    pub fn list_outputs_summary(&self) -> String {
+        let mut outputs: Vec<(String, u32)> = self
+            .output_names
+            .iter()
+            .map(|(surface_id, name)| (name.clone(), *surface_id))
+            .collect();
+        outputs.sort_by(|a, b| a.0.cmp(&b.0));
+        outputs.dedup_by(|a, b| a.0 == b.0);
+
+        let mut lines = vec![String::from("status=ok")];
+        if outputs.is_empty() {
+            lines.push(String::from("outputs=none"));
+        } else {
+            lines.push(format!(
+                "outputs={}",
+                outputs
+                    .iter()
+                    .map(|(name, _)| name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+            for (name, surface_id) in outputs {
+                let (logical_width, logical_height) =
+                    self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
+                let scale = self.output_scales.get(&surface_id).copied().unwrap_or(1);
+                let transform = self
+                    .output_transforms
+                    .get(&surface_id)
+                    .copied()
+                    .unwrap_or(wl_output::Transform::Normal);
+                lines.push(format!(
+                    "output={} surface_id={} logical_size={}x{} scale={} transform={:?} fullscreen_hidden={} manually_hidden={} effective_hidden={}",
+                    name,
+                    surface_id,
+                    logical_width,
+                    logical_height,
+                    scale,
+                    transform,
+                    self.fullscreen_hidden.contains(&surface_id),
+                    self.manually_hidden_outputs.contains(&name),
+                    self.surface_is_hidden(surface_id),
+                ));
+            }
+        }
+        lines.push(String::new());
+        lines.join("
+")
+    }
+
+    fn output_snapshot(&self, output_name: &str, surface_id: u32) -> serde_json::Value {
+        let (logical_width, logical_height) = self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
+        let scale = self.output_scales.get(&surface_id).copied().unwrap_or(1);
+        let transform = self
+            .output_transforms
+            .get(&surface_id)
+            .copied()
+            .unwrap_or(wl_output::Transform::Normal);
+        let fullscreen_hidden = self.fullscreen_hidden.contains(&surface_id);
+        let manually_hidden = self.manually_hidden_outputs.contains(output_name);
+        let effective_hidden = self.surface_is_hidden(surface_id);
+
+        json!({
+            "output": output_name,
+            "surface_id": surface_id,
+            "logical_size": {
+                "width": logical_width,
+                "height": logical_height,
+            },
+            "scale": scale,
+            "transform": format!("{:?}", transform),
+            "fullscreen_hidden": fullscreen_hidden,
+            "manually_hidden": manually_hidden,
+            "globally_hidden": self.manually_hidden,
+            "effective_hidden": effective_hidden,
+        })
+    }
+
+    pub fn status_summary_json(&self) -> String {
+        let mut outputs: Vec<String> = self.output_names.values().cloned().collect();
+        outputs.sort();
+        outputs.dedup();
+
+        let mut fullscreen_outputs: Vec<String> = self
+            .fullscreen_hidden
+            .iter()
+            .filter_map(|surface_id| self.output_names.get(surface_id).cloned())
+            .collect();
+        fullscreen_outputs.sort();
+        fullscreen_outputs.dedup();
+
+        let mut manually_hidden_outputs: Vec<String> = self.manually_hidden_outputs.iter().cloned().collect();
+        manually_hidden_outputs.sort();
+
+        serde_json::to_string_pretty(&json!({
+            "status": "ok",
+            "config_path": crate::config::Config::resolve_path(),
+            "loaded_files": self.config.loaded_files.len(),
+            "active_surfaces": self.active_surfaces.len(),
+            "outputs": outputs,
+            "fullscreen_hidden": self.fullscreen_hidden.len(),
+            "fullscreen_outputs": fullscreen_outputs,
+            "manually_hidden": self.manually_hidden,
+            "manually_hidden_outputs": manually_hidden_outputs,
+        }))
+        .map(|mut s| {
+            s.push('\n');
+            s
+        })
+        .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize status\"}\n".to_string())
+    }
+
+    pub fn status_summary_for_output_json(&self, output_name: &str) -> String {
+        let normalized = output_name.trim();
+        if normalized.is_empty() {
+            return "{\"status\":\"error\",\"message\":\"output name cannot be blank\"}\n".to_string();
+        }
+
+        let Some(surface_id) = self
+            .output_names
+            .iter()
+            .find_map(|(surface_id, name)| if name == normalized { Some(*surface_id) } else { None })
+        else {
+            return serde_json::to_string_pretty(&json!({
+                "status": "missing",
+                "output": normalized,
+            }))
+            .map(|mut s| {
+                s.push('\n');
+                s
+            })
+            .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize output status\"}\n".to_string());
+        };
+
+        serde_json::to_string_pretty(&json!({
+            "status": "ok",
+            "details": self.output_snapshot(normalized, surface_id),
+        }))
+        .map(|mut s| {
+            s.push('\n');
+            s
+        })
+        .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize output status\"}\n".to_string())
+    }
+
+    pub fn list_outputs_summary_json(&self) -> String {
+        let mut outputs: Vec<(String, u32)> = self
+            .output_names
+            .iter()
+            .map(|(surface_id, name)| (name.clone(), *surface_id))
+            .collect();
+        outputs.sort_by(|a, b| a.0.cmp(&b.0));
+        outputs.dedup_by(|a, b| a.0 == b.0);
+
+        let output_details: Vec<serde_json::Value> = outputs
+            .into_iter()
+            .map(|(name, surface_id)| self.output_snapshot(&name, surface_id))
+            .collect();
+
+        serde_json::to_string_pretty(&json!({
+            "status": "ok",
+            "outputs": output_details,
+        }))
+        .map(|mut s| {
+            s.push('\n');
+            s
+        })
+        .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize outputs list\"}\n".to_string())
+    }
     pub fn surface_id_for_output_id(&self, output_id: u32) -> Option<u32> {
         self.output_ids
             .iter()

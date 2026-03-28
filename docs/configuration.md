@@ -253,13 +253,15 @@ Rustbar now exposes a small local control socket at `XDG_RUNTIME_DIR/rustbar.soc
 
 Supported commands:
 
-- `reload`: reload the active config immediately
-- `refresh`: redraw all active surfaces
-- `fullscreen`: rerun the fullscreen-state check
-- `show [output-name]`: force all rustbar surfaces visible, or one named output when provided
-- `hide [output-name]`: force all rustbar surfaces hidden, or one named output when provided
-- `toggle [output-name]`: toggle manual visibility for all rustbar surfaces, or one named output when provided
-- `status [output-name]`: print the full runtime summary, or one named output when provided
+- `reload [--json]`: reload the active config immediately; returns the updated state
+- `refresh [--json]`: redraw all active surfaces; returns the updated state
+- `fullscreen [--json]`: rerun the fullscreen-state check; returns the updated state
+- `show [output-name] [--json]`: force all rustbar surfaces visible, or one named output when provided; returns the updated state
+- `hide [output-name] [--json]`: force all rustbar surfaces hidden, or one named output when provided; returns the updated state
+- `toggle [output-name] [--json]`: toggle manual visibility for all rustbar surfaces, or one named output when provided; returns the updated state
+- `status [output-name] [--json]`: print the full runtime summary, or one named output when provided; add `--json` for machine-readable output
+- `list-outputs [--json]`: print all active outputs with runtime details; add `--json` for machine-readable output
+- `complete-outputs [prefix]`: print active output names one per line, optionally filtered by prefix; intended for shell completion and scripting
 - `quit`: stop rustbar cleanly
 
 Example usage:
@@ -271,12 +273,25 @@ printf 'reload\n' | socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/rustbar.sock"
 Helper usage:
 
 ```bash
+cargo run --bin rustbarctl -- reload
+cargo run --bin rustbarctl -- reload --json
+cargo run --bin rustbarctl -- complete-outputs DP
+cargo run --bin rustbarctl -- --socket /tmp/rustbar.sock status
 scripts/rustbarctl.sh reload
+scripts/rustbarctl.sh reload --json
+scripts/rustbarctl.sh fullscreen --json
 scripts/rustbarctl.sh hide
+scripts/rustbarctl.sh hide --json
 scripts/rustbarctl.sh show DP-1
 scripts/rustbarctl.sh toggle HDMI-A-1
+scripts/rustbarctl.sh toggle HDMI-A-1 --json
 scripts/rustbarctl.sh status
+scripts/rustbarctl.sh status --json
 scripts/rustbarctl.sh status DP-1
+scripts/rustbarctl.sh status DP-1 --json
+scripts/rustbarctl.sh refresh --json
+scripts/rustbarctl.sh list-outputs
+scripts/rustbarctl.sh list-outputs --json
 ```
 
 Current notes:
@@ -284,9 +299,18 @@ Current notes:
 - The socket is local to the current user session.
 - Unknown commands return a short error string instead of changing state.
 - Manual `hide` applies on top of compositor-driven fullscreen hiding; `show` clears only the manual hide state.
+- `reload`, `refresh`, `fullscreen`, `show`, `hide`, and `toggle` now return the updated plain-text or JSON state immediately instead of a generic `ok`, which makes scripting and verification easier.
 - Output-scoped visibility and status commands match the Wayland output name rustbar is already using for monitor overrides, such as `DP-1` or `HDMI-A-1`.
 - The socket path is recreated on startup if a stale file is left behind.
-- The repository now includes `scripts/rustbarctl.sh` as a small helper around the same socket protocol.
+- The repository now includes a native `rustbarctl` binary plus `scripts/rustbarctl.sh` as a small shell helper around the same socket protocol.
+- `rustbarctl --socket PATH ...` lets you target a non-default socket path, which is useful for testing or parallel sessions.
+- `rustbarctl complete-outputs [prefix]` asks rustbar for the current output list and prints matching output names one per line.
+- The repository now ships shell completion files in `completions/rustbarctl.bash`, `completions/_rustbarctl`, and `completions/rustbarctl.fish`.
+- Typical installs: source the Bash file manually, place `_rustbarctl` somewhere on your Zsh `fpath`, or copy `rustbarctl.fish` into `~/.config/fish/completions/`.
+- The repository also includes `scripts/install-completions.sh` to install Bash, Zsh, and Fish completions into standard user-local locations.
+- Examples: `scripts/install-completions.sh --all`, `scripts/install-completions.sh --zsh`, or `scripts/install-completions.sh --bash --prefix ~/.local/share`.
+- `list-outputs` is a compact discovery command for finding exact output names before using output-scoped commands like `status DP-1` or `hide HDMI-A-1`.
+- `--json` returns pretty-printed JSON so shell scripts and status bars can consume the same runtime data without parsing the plain-text format.
 
 ## Layer Configuration
 

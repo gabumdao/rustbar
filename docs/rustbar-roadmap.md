@@ -240,7 +240,7 @@ Checklist:
 | Texture and pattern composition | Not implemented | Only SVG motif layer exists. | Design rendering stack first. |
 | Side-specific motifs | Implemented | Pattern configs can now provide per-side SVG sources through `[pattern.sources]`, with fallback to the global `pattern.source`. | Consider per-side pattern presets only if more workflow simplification is needed. |
 | Dedicated corner motifs | Implemented | Corner-specific SVG sources can now be provided through `[pattern.corners]` for each of the four corners. | Add screenshots and more preset-style examples later. |
-| Runtime IPC / commands | Implemented | Rustbar now exposes a local Unix socket at `XDG_RUNTIME_DIR/rustbar.sock` with `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit` commands. `show`/`hide`/`toggle` and `status` can target a single output name, and the repo includes `scripts/rustbarctl.sh` as a helper wrapper. | Extend only if richer query/status commands prove necessary. |
+| Runtime IPC / commands | Implemented | Rustbar now exposes a local Unix socket at `XDG_RUNTIME_DIR/rustbar.sock` with `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, `list-outputs`, and `quit` commands. `show`/`hide`/`toggle` and `status` can target a single output name, `reload`/`refresh`, `fullscreen`, `show`/`hide`/`toggle`, `status`, and `list-outputs` can return pretty JSON via `--json`, reload/refresh/fullscreen/visibility commands return the updated state instead of only `ok`, `list-outputs` exposes active output discovery, and the repo now includes both a native `rustbarctl` binary and `scripts/rustbarctl.sh` as client wrappers. The native binary also supports `--socket` overrides, `complete-outputs`, shipped shell completion files for Bash, Zsh, and Fish, and an install helper script for those completion files. | Extend only if richer query/status commands prove necessary. |
 | Theme integration | Not implemented | No compositor or desktop theme bridge. | Future only. |
 | Pywal integration | Not implemented | No pywal code found. | Future only. |
 | Advanced effects | Not implemented | Beyond current shadows/highlights/patterns, no effect stack exists. | Defer. |
@@ -457,11 +457,18 @@ The Hyprland shell/layer verification pass is now complete for the original shel
 - [x] Added per-side SVG motif sources through `[pattern.sources]` with config merge, validation, rendering, and tests
 - [x] Added dedicated corner SVG motif sources through `[pattern.corners]` with validation, rendering, and tests
 - [x] Added a basic runtime control socket with `reload`, `refresh`, `fullscreen`, and `quit` commands
+- [x] Added a native `rustbarctl` binary for the runtime control socket
 - [x] Added `scripts/rustbarctl.sh` as a helper for the runtime control socket
+- [x] Added `scripts/install-completions.sh` for installing completion files
 - [x] Added a `status` runtime command for live socket queries
 - [x] Added `show`, `hide`, and `toggle` runtime visibility commands
 - [x] Added output-scoped runtime visibility control by Wayland output name
 - [x] Added output-filtered `status <output-name>` runtime queries
+- [x] Added `list-outputs` runtime discovery for active outputs
+- [x] Added `--json` output for `status`, `list-outputs`, and visibility runtime queries
+- [x] Changed `show` / `hide` / `toggle` to return the updated state immediately
+- [x] Changed `reload` / `refresh` to return the updated state immediately
+- [x] Changed `fullscreen` to return the updated state immediately
 - [x] Fixed pattern sizing so mixed-thickness layouts no longer rescale motifs with bezel thickness
 - [x] Fixed SHM buffer attachment to use SCTK buffer activation and avoid inactive-buffer release warnings
 - [x] Verified in the latest release capture that inactive-buffer release warnings are gone and reload timing remains healthy

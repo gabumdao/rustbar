@@ -3,16 +3,17 @@ set -eu
 
 usage() {
     cat <<'EOF'
-Usage: rustbarctl.sh <command> [output-name]
+Usage: rustbarctl.sh <command> [args...]
 
 Commands:
-  reload       Reload the active config
-  refresh      Redraw all active surfaces
-  fullscreen   Rerun the fullscreen-state check
-  show         Force all rustbar surfaces visible, or one output if given
-  hide         Force all rustbar surfaces hidden, or one output if given
-  toggle       Toggle manual visibility for all surfaces, or one output if given
-  status       Print a live rustbar status summary, or one output if given
+  reload       Reload the active config; add --json for machine-readable state
+  refresh      Redraw all active surfaces; add --json for machine-readable state
+  fullscreen   Rerun the fullscreen-state check; add --json for machine-readable state
+  show         Force all rustbar surfaces visible, or one output if given; add --json for machine-readable state
+  hide         Force all rustbar surfaces hidden, or one output if given; add --json for machine-readable state
+  toggle       Toggle manual visibility for all surfaces, or one output if given; add --json for machine-readable state
+  status       Print a live rustbar status summary, or one output if given; add --json for machine-readable output
+  list-outputs Print all active outputs with runtime details; add --json for machine-readable output
   quit         Stop rustbar cleanly
   help         Show this help
 EOF
@@ -22,7 +23,7 @@ command=${1:-help}
 shift || true
 output_name=${*:-}
 case "$command" in
-    reload|refresh|fullscreen|show|hide|toggle|status|quit)
+    reload|refresh|fullscreen|show|hide|toggle|status|list-outputs|quit)
         ;;
     help|-h|--help)
         usage

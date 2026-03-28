@@ -1,0 +1,58 @@
+#compdef rustbarctl
+
+local -a commands
+commands=(
+  'reload:Reload the active config'
+  'refresh:Redraw all active surfaces'
+  'fullscreen:Rerun the fullscreen-state check'
+  'show:Show all rustbar surfaces or one output'
+  'hide:Hide all rustbar surfaces or one output'
+  'toggle:Toggle visibility for all rustbar surfaces or one output'
+  'status:Print status for all outputs or one output'
+  'list-outputs:List active outputs'
+  'complete-outputs:Print active output names'
+  'quit:Stop rustbar cleanly'
+  'help:Show help'
+)
+
+local -a global_args
+global_args=(
+  '(-s --socket)'{-s,--socket}'[override the control socket path]:socket:_files'
+  '(-h --help)'{-h,--help}'[show help]'
+)
+
+_rustbarctl_output_names() {
+  local -a outputs
+  outputs=( ${(f)"$(rustbarctl complete-outputs 2>/dev/null)"} )
+  _describe 'output' outputs
+}
+
+_arguments -C   $global_args   '1:command:->command'   '*::arg:->args'
+
+case $state in
+  command)
+    _describe 'command' commands
+    ;;
+  args)
+    case $words[1] in
+      (*rustbarctl)
+        local cmd_index=2
+        if [[ ${words[2]} == --socket || ${words[2]} == -s ]]; then
+          cmd_index=4
+        fi
+        local cmd=${words[$cmd_index]}
+        case $cmd in
+          (show|hide|toggle|status)
+            _alternative               'args:output:_rustbarctl_output_names'               'json:json flag:(--json)'
+            ;;
+          (reload|refresh|fullscreen|list-outputs)
+            _values 'flag' --json
+            ;;
+          (complete-outputs)
+            _rustbarctl_output_names
+            ;;
+        esac
+        ;;
+    esac
+    ;;
+esac

@@ -13,7 +13,7 @@
 - **User-Defined Presets**: Define reusable style presets in config and apply them globally or per monitor before explicit overrides.
 - **Output-Aware Buffer Handling**: Rustbar now applies per-output buffer scale and buffer transform state so HiDPI outputs and rotated outputs can use correctly sized buffers when the compositor supports those Wayland surface features.
 - **Live Reloading**: Automatically reloads configuration on-the-fly when it detects changes to the `rustbar.toml` file.
-- **Runtime Commands**: A local control socket can trigger `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit` commands without editing config files. `show`/`hide`/`toggle` and `status` can target a single output name as well. The repo now ships a small `scripts/rustbarctl.sh` helper for it.
+- **Runtime Commands**: A local control socket can trigger `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, `list-outputs`, and `quit` commands without editing config files. `show`/`hide`/`toggle` and `status` can target a single output name as well, and `reload`/`refresh`, `fullscreen`, `show`/`hide`/`toggle`, `status`, plus `list-outputs` support `--json` for machine-readable output. Reload, refresh, fullscreen, and visibility commands now return the updated state instead of only `ok`. The repo now ships both a native `rustbarctl` binary and a small `scripts/rustbarctl.sh` helper.
 - **Configurable Layer Behavior**: The layer-shell surface can be placed on `background`, `bottom`, `top`, or `overlay`, with configurable namespace, exclusive zone, click-through, and keyboard interactivity.
 - **Hyprland Fullscreen Handling**: On Hyprland, rustbar listens for monitor/fullscreen changes and hides the frame on fullscreen outputs by swapping in a transparent, non-interactive surface state.
 - **SVG Pattern Layer**: Decorative SVG motifs can be repeated along the frame bezel with configurable scaling, rotation, spacing, jitter, per-side motif sources, and dedicated corner motifs for highly stylized visual themes.
@@ -34,7 +34,12 @@ Ensure you have a recent Rust toolchain installed, as well as a compatible Wayla
    cargo build --release
    ```
 
-3. The compiled binary will be located in the `target/release/` directory.
+3. The compiled binaries will be located in the `target/release/` directory, including `rustbar` and `rustbarctl`.
+
+4. Optional: install shell completions:
+   ```bash
+   scripts/install-completions.sh --all
+   ```
 
 ## Configuration
 
@@ -108,9 +113,12 @@ Runtime notes: rustbar creates one layer-shell surface per enabled output. On co
 
 Runtime control note:
 
-- Rustbar listens on `XDG_RUNTIME_DIR/rustbar.sock` for simple commands such as `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit`.
+- Rustbar listens on `XDG_RUNTIME_DIR/rustbar.sock` for simple commands such as `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, `list-outputs`, and `quit`. `status` and `list-outputs` accept `--json` for machine-readable output.
 - Example: `printf 'reload\n' | socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/rustbar.sock"`
-- Helper: `scripts/rustbarctl.sh hide`, `scripts/rustbarctl.sh show DP-1`, or `scripts/rustbarctl.sh status DP-1`
+- Native CLI: `cargo run --bin rustbarctl -- status --json`, `target/release/rustbarctl list-outputs --json`, `target/release/rustbarctl complete-outputs DP`, `target/release/rustbarctl --socket /tmp/rustbar.sock status`, or `target/release/rustbarctl show DP-1`
+- Shell helper: `scripts/rustbarctl.sh reload --json`, `scripts/rustbarctl.sh refresh --json`, `scripts/rustbarctl.sh fullscreen --json`, `scripts/rustbarctl.sh hide --json`, `scripts/rustbarctl.sh show DP-1`, `scripts/rustbarctl.sh toggle HDMI-A-1 --json`, `scripts/rustbarctl.sh status DP-1 --json`, or `scripts/rustbarctl.sh list-outputs --json`
+- Shell completion scripts now live under `completions/` for Bash, Zsh, and Fish.
+- `scripts/install-completions.sh --all` installs them into standard user-local locations.
 
 Validation and logging notes:
 
