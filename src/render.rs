@@ -244,6 +244,11 @@ struct PreparedMotif {
     oversample: f32,
 }
 
+
+fn motif_cache_key(source: &str, scale_factor: f32) -> String {
+    format!("{}|{:.3}", source, scale_factor)
+}
+
 fn pattern_source_for_side<'a>(config: &'a MonitorPatternConfig, side: PatternSide) -> Option<&'a str> {
     config
         .sources
@@ -260,14 +265,13 @@ fn pattern_source_for_side<'a>(config: &'a MonitorPatternConfig, side: PatternSi
 fn prepare_motif(
     source: &str,
     config: &MonitorPatternConfig,
-    target_extent: f32,
+    scale_factor: f32,
 ) -> Option<PreparedMotif> {
     let svg_path = PatternConfig::resolve_svg_path(source);
     let tree = load_svg_tree(&svg_path).ok()?;
 
     let motif_size = tree.size();
-    let intrinsic_max = motif_size.width().max(motif_size.height()).max(1.0);
-    let motif_scale = target_extent / intrinsic_max;
+    let motif_scale = scale_factor.max(0.01);
     let motif_w = motif_size.width() * motif_scale;
     let motif_h = motif_size.height() * motif_scale;
     if motif_w <= 0.0 || motif_h <= 0.0 {
@@ -335,28 +339,6 @@ fn draw_pattern(
     let t_bottom = outer_rect.bottom() - inner_rect.bottom();
     let t_left = inner_rect.left() - outer_rect.left();
     let t_right = outer_rect.right() - inner_rect.right();
-
-    let base_extent = [
-        (sides_config.top, t_top),
-        (sides_config.bottom, t_bottom),
-        (sides_config.left, t_left),
-        (sides_config.right, t_right),
-    ]
-    .into_iter()
-    .filter_map(|(enabled, thickness)| {
-        if enabled && thickness > 0.0 {
-            Some(thickness)
-        } else {
-            None
-        }
-    })
-    .fold(f32::INFINITY, f32::min);
-    let base_extent = if base_extent.is_finite() {
-        base_extent
-    } else {
-        24.0
-    };
-    let target_extent = (base_extent * transform_config.scale.max(0.01)).max(1.0);
 
     let seed = config.seed.unwrap_or(0);
     let mut rng = SimpleRng::new(seed);
@@ -447,9 +429,11 @@ fn draw_pattern(
         let Some(source) = pattern_source_for_side(config, side) else {
             continue;
         };
+        let motif_scale = transform_config.scale.max(0.01);
+        let cache_key = motif_cache_key(source, motif_scale);
         let Some(motif) = motif_cache
-            .entry(source.to_string())
-            .or_insert_with(|| prepare_motif(source, config, target_extent))
+            .entry(cache_key)
+            .or_insert_with(|| prepare_motif(source, config, motif_scale))
             .as_ref()
         else {
             continue;
@@ -707,6 +691,84 @@ fn draw_pattern(
                 y += (safe_spacing + jitter).max(1.0);
             }
         }
+    }
+
+    let corner_scale = transform_config.scale.max(0.01);
+
+    let corner_specs = [
+        (
+            corners_config.top_left.as_deref(),
+            outer_rect.left() + t_left / 2.0,
+            outer_rect.top() + t_top / 2.0,
+            if t_top > 0.0 && t_left > 0.0 { Some(corner_scale) } else { None },
+        ),
+        (
+            corners_config.top_right.as_deref(),
+            outer_rect.right() - t_right / 2.0,
+            outer_rect.top() + t_top / 2.0,
+            if t_top > 0.0 && t_right > 0.0 { Some(corner_scale) } else { None },
+        ),
+        (
+            corners_config.bottom_left.as_deref(),
+            outer_rect.left() + t_left / 2.0,
+            outer_rect.bottom() - t_bottom / 2.0,
+            if t_bottom > 0.0 && t_left > 0.0 { Some(corner_scale) } else { None },
+        ),
+        (
+            corners_config.bottom_right.as_deref(),
+            outer_rect.right() - t_right / 2.0,
+            outer_rect.bottom() - t_bottom / 2.0,
+            if t_bottom > 0.0 && t_right > 0.0 { Some(corner_scale) } else { None },
+        ),
+    ];
+
+    for (source, x, y, target_extent) in corner_specs {
+        let (Some(source), Some(target_extent)) = (source, target_extent) else {
+            continue;
+        };
+        let cache_key = motif_cache_key(source, target_extent);
+        let Some(motif) = motif_cache
+            .entry(cache_key)
+            .or_insert_with(|| prepare_motif(source, config, target_extent))
+            .as_ref()
+        else {
+            continue;
+        };
+
+        let mut ts = Transform::from_translate(
+            -(motif.pixmap.width() as f32) / 2.0,
+            -(motif.pixmap.height() as f32) / 2.0,
+        );
+        ts = ts.post_scale(
+            if transform_config.flip_x { -1.0 } else { 1.0 } / motif.oversample,
+            if transform_config.flip_y { -1.0 } else { 1.0 } / motif.oversample,
+        );
+        ts = ts.post_rotate(transform_config.rotation);
+        ts = ts.post_translate(x, y);
+
+        let blend_mode = match config.blend.as_deref() {
+            Some("multiply") => BlendMode::Multiply,
+            Some("screen") => BlendMode::Screen,
+            Some("overlay") => BlendMode::Overlay,
+            Some("darken") => BlendMode::Darken,
+            Some("lighten") => BlendMode::Lighten,
+            _ => BlendMode::SourceOver,
+        };
+        let source_pixmap = motif
+            .tinted_pixmap
+            .as_ref()
+            .map(|pixmap| pixmap.as_ref())
+            .unwrap_or_else(|| motif.pixmap.as_ref());
+
+        let mut pp = PixmapPaint::default();
+        pp.opacity = if motif.tinted_pixmap.is_some() {
+            1.0
+        } else {
+            config.opacity.unwrap_or(1.0)
+        };
+        pp.blend_mode = blend_mode;
+        pp.quality = FilterQuality::Bicubic;
+        pixmap.draw_pixmap(0, 0, source_pixmap, &pp, ts, None);
     }
 
     if layout_config.clip_to_frame {
@@ -1319,9 +1381,85 @@ fn parse_hex_color(hex: &str, alpha: f32) -> Color {
     Color::from_rgba8(r, g, b, (alpha * (hex_a as f32)) as u8)
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn test_pattern_size_does_not_change_when_thinner_side_is_enabled() {
+        let unique = format!(
+            "rustbar-side-extent-{}-{}.svg",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let svg_path = std::env::temp_dir().join(unique);
+        std::fs::write(
+            &svg_path,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect width="16" height="16" fill="white"/></svg>"#,
+        )
+        .unwrap();
+
+        let outer_rect = Rect::from_xywh(0.0, 0.0, 64.0, 64.0).unwrap();
+        let inner_rect = Rect::from_xywh(8.0, 8.0, 48.0, 32.0).unwrap();
+        let base_layout = Some(crate::config::PatternLayoutConfig {
+            follow_edge_direction: true,
+            clip_to_frame: true,
+            prevent_overlap: false,
+            overlap_padding: 2.0,
+            angle: 45.0,
+        });
+
+        let bottom_only = MonitorPatternConfig {
+            enabled: Some(true),
+            source: Some(svg_path.to_string_lossy().to_string()),
+            sources: None,
+            mode: Some("single".into()),
+            opacity: Some(1.0),
+            color: None,
+            blend: None,
+            seed: Some(0),
+            transform: None,
+            repeat: None,
+            sides: Some(crate::config::PatternSidesConfig {
+                top: false,
+                bottom: true,
+                left: false,
+                right: false,
+            }),
+            corners: None,
+            layout: base_layout.clone(),
+        };
+
+        let bottom_and_left = MonitorPatternConfig {
+            sides: Some(crate::config::PatternSidesConfig {
+                top: false,
+                bottom: true,
+                left: true,
+                right: false,
+            }),
+            ..bottom_only.clone()
+        };
+
+        let mut bottom_only_pixmap = Pixmap::new(64, 64).unwrap();
+        draw_pattern(&mut bottom_only_pixmap, outer_rect, inner_rect, 0.0, &bottom_only);
+
+        let mut bottom_and_left_pixmap = Pixmap::new(64, 64).unwrap();
+        draw_pattern(&mut bottom_and_left_pixmap, outer_rect, inner_rect, 0.0, &bottom_and_left);
+        let _ = std::fs::remove_file(&svg_path);
+
+        assert!(bottom_only_pixmap.pixel(32, 45).unwrap().alpha() > 0);
+        assert_eq!(
+            bottom_only_pixmap.pixel(32, 45).unwrap().alpha(),
+            bottom_and_left_pixmap.pixel(32, 45).unwrap().alpha(),
+            "enabling a thinner side should not shrink the bottom motif"
+        );
+        assert_eq!(bottom_and_left_pixmap.pixel(32, 39).unwrap().alpha(), 0);
+    }
 
     #[test]
     fn test_parse_hex_color_multiplies_global_opacity_and_hex_alpha() {
@@ -1663,6 +1801,10 @@ mod tests {
             corners: Some(PatternCornersConfig {
                 avoid_corners: false,
                 corner_padding: 0.0,
+                top_left: None,
+                top_right: None,
+                bottom_left: None,
+                bottom_right: None,
             }),
             layout: Some(PatternLayoutConfig {
                 follow_edge_direction: true,
@@ -1767,6 +1909,10 @@ mod tests {
             corners: Some(PatternCornersConfig {
                 avoid_corners: false,
                 corner_padding: 0.0,
+                top_left: None,
+                top_right: None,
+                bottom_left: None,
+                bottom_right: None,
             }),
             layout: Some(PatternLayoutConfig {
                 follow_edge_direction: true,
@@ -1934,6 +2080,10 @@ mod tests {
                 corners: Some(PatternCornersConfig {
                     avoid_corners: false,
                     corner_padding: 0.0,
+                    top_left: None,
+                    top_right: None,
+                    bottom_left: None,
+                    bottom_right: None,
                 }),
                 layout: Some(PatternLayoutConfig {
                     follow_edge_direction: true,
@@ -1954,6 +2104,106 @@ mod tests {
 
         let _ = fs::remove_file(top_svg);
         let _ = fs::remove_file(bottom_svg);
+    }
+
+
+    #[test]
+    fn test_pattern_corner_sources_render_different_corner_motif() {
+        use std::env::temp_dir;
+        use std::fs;
+
+        use crate::config::{
+            MonitorPatternConfig, PatternCornersConfig, PatternLayoutConfig,
+            PatternRepeatConfig, PatternSidesConfig, PatternTransformConfig,
+        };
+
+        let corner_svg = temp_dir().join("rustbar-pattern-corner-top-left.svg");
+        fs::write(
+            &corner_svg,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+<rect width="20" height="20" fill="#00ff00"/>
+</svg>"##,
+        )
+        .unwrap();
+
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: Some(12),
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
+            radius: Some(0),
+            opacity: Some(1.0),
+            color: Some("#000000".to_string()),
+            preset: None,
+            shadow_width: Some(0.0),
+            shadow_color: Some("#00000000".to_string()),
+            highlight_width: Some(0.0),
+            highlight_color: Some("#00000000".to_string()),
+            inner_shadow: None,
+            gradient: None,
+            pattern: Some(MonitorPatternConfig {
+                enabled: Some(true),
+                source: None,
+                sources: None,
+                mode: Some("single".to_string()),
+                opacity: Some(1.0),
+                color: None,
+                blend: Some("normal".to_string()),
+                seed: Some(9),
+                transform: Some(PatternTransformConfig {
+                    scale: 1.0,
+                    rotation: 0.0,
+                    flip_x: false,
+                    flip_y: false,
+                }),
+                repeat: Some(PatternRepeatConfig {
+                    spacing: 24.0,
+                    offset: 0.0,
+                    jitter_spacing: 0.0,
+                    jitter_rotation: 0.0,
+                    jitter_scale: 0.0,
+                }),
+                sides: Some(PatternSidesConfig {
+                    top: false,
+                    bottom: false,
+                    left: false,
+                    right: false,
+                }),
+                corners: Some(PatternCornersConfig {
+                    avoid_corners: false,
+                    corner_padding: 0.0,
+                    top_left: Some(corner_svg.display().to_string()),
+                    top_right: None,
+                    bottom_left: None,
+                    bottom_right: None,
+                }),
+                layout: Some(PatternLayoutConfig {
+                    follow_edge_direction: true,
+                    clip_to_frame: true,
+                    prevent_overlap: false,
+                    overlap_padding: 0.0,
+                    angle: 45.0,
+                }),
+            }),
+            layer: None,
+        };
+
+        let pixels = draw_frame(64, 64, &config);
+        let idx = |x: usize, y: usize| (y * 64 + x) * 4;
+        assert_eq!(&pixels[idx(6, 6)..idx(6, 6) + 4], &[0, 255, 0, 255]);
+        assert_eq!(&pixels[idx(57, 6)..idx(57, 6) + 4], &[0, 0, 0, 255]);
+
+        let _ = fs::remove_file(corner_svg);
     }
 
     #[test]
@@ -2030,6 +2280,10 @@ mod tests {
                 corners: Some(PatternCornersConfig {
                     avoid_corners: true,
                     corner_padding: 20.0,
+                    top_left: None,
+                    top_right: None,
+                    bottom_left: None,
+                    bottom_right: None,
                 }),
                 layout: Some(PatternLayoutConfig {
                     follow_edge_direction: true,

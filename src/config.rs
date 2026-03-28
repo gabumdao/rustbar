@@ -340,6 +340,10 @@ pub struct PatternCornersConfig {
     pub avoid_corners: bool,
     #[serde(default = "default_pattern_corner_padding")]
     pub corner_padding: f32,
+    pub top_left: Option<String>,
+    pub top_right: Option<String>,
+    pub bottom_left: Option<String>,
+    pub bottom_right: Option<String>,
 }
 
 fn default_pattern_avoid_corners() -> bool {
@@ -354,6 +358,10 @@ impl Default for PatternCornersConfig {
         Self {
             avoid_corners: default_pattern_avoid_corners(),
             corner_padding: default_pattern_corner_padding(),
+            top_left: None,
+            top_right: None,
+            bottom_left: None,
+            bottom_right: None,
         }
     }
 }
@@ -724,6 +732,20 @@ fn collect_pattern_source_entries(pattern: &MonitorPatternConfig) -> Vec<(&'stat
         }
         if let Some(source) = sources.right.as_deref() {
             entries.push(("pattern.sources.right", source));
+        }
+    }
+    if let Some(corners) = &pattern.corners {
+        if let Some(source) = corners.top_left.as_deref() {
+            entries.push(("pattern.corners.top_left", source));
+        }
+        if let Some(source) = corners.top_right.as_deref() {
+            entries.push(("pattern.corners.top_right", source));
+        }
+        if let Some(source) = corners.bottom_left.as_deref() {
+            entries.push(("pattern.corners.bottom_left", source));
+        }
+        if let Some(source) = corners.bottom_right.as_deref() {
+            entries.push(("pattern.corners.bottom_right", source));
         }
     }
     entries
@@ -2087,6 +2109,65 @@ level = "overlay"
         assert!(warnings
             .iter()
             .any(|warning| warning.contains("pattern.sources.top='missing-top-pattern-asset'")));
+    }
+
+
+    #[test]
+    fn test_collect_monitor_validation_warnings_reports_missing_corner_pattern_asset() {
+        let config = MonitorConfig {
+            enabled: Some(true),
+            thickness: None,
+            thickness_top: None,
+            thickness_bottom: None,
+            thickness_left: None,
+            thickness_right: None,
+            frame_sides: None,
+            margin: None,
+            margin_top: None,
+            margin_bottom: None,
+            margin_left: None,
+            margin_right: None,
+            offset_x: None,
+            offset_y: None,
+            radius: None,
+            opacity: None,
+            color: None,
+            preset: None,
+            shadow_width: None,
+            shadow_color: None,
+            highlight_width: None,
+            highlight_color: None,
+            inner_shadow: None,
+            gradient: None,
+            pattern: Some(MonitorPatternConfig {
+                enabled: Some(true),
+                source: None,
+                sources: None,
+                mode: Some("repeat".to_string()),
+                opacity: Some(1.0),
+                color: None,
+                blend: Some("normal".to_string()),
+                seed: None,
+                transform: None,
+                repeat: None,
+                sides: None,
+                corners: Some(PatternCornersConfig {
+                    avoid_corners: false,
+                    corner_padding: 12.0,
+                    top_left: Some("missing-corner-pattern-asset".to_string()),
+                    top_right: None,
+                    bottom_left: None,
+                    bottom_right: None,
+                }),
+                layout: None,
+            }),
+            layer: None,
+        };
+
+        let warnings = collect_monitor_validation_warnings("DP-1", &config);
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("pattern.corners.top_left='missing-corner-pattern-asset'")));
     }
 
     #[test]

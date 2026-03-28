@@ -247,6 +247,45 @@ The `[inner_shadow]` section controls the shadow that fades inward from the beze
 | `softness` | Float | `1.0` | Controls the falloff curve sharpness. |
 | `falloff` | String | `"ease_out"` | Falloff style: `"ease_out"`, `"ease_in"`, or `"linear"`. |
 
+## Runtime IPC
+
+Rustbar now exposes a small local control socket at `XDG_RUNTIME_DIR/rustbar.sock`.
+
+Supported commands:
+
+- `reload`: reload the active config immediately
+- `refresh`: redraw all active surfaces
+- `fullscreen`: rerun the fullscreen-state check
+- `show`: force all rustbar surfaces visible
+- `hide`: force all rustbar surfaces hidden
+- `toggle`: toggle manual visibility for all rustbar surfaces
+- `status`: print a live runtime summary
+- `quit`: stop rustbar cleanly
+
+Example usage:
+
+```bash
+printf 'reload\n' | socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/rustbar.sock"
+```
+
+Helper usage:
+
+```bash
+scripts/rustbarctl.sh reload
+scripts/rustbarctl.sh hide
+scripts/rustbarctl.sh show
+scripts/rustbarctl.sh toggle
+scripts/rustbarctl.sh status
+```
+
+Current notes:
+
+- The socket is local to the current user session.
+- Unknown commands return a short error string instead of changing state.
+- Manual `hide` applies on top of compositor-driven fullscreen hiding; `show` clears only the manual hide state.
+- The socket path is recreated on startup if a stale file is left behind.
+- The repository now includes `scripts/rustbarctl.sh` as a small helper around the same socket protocol.
+
 ## Layer Configuration
 
 The `[layer]` section controls how the bar interacts with the Wayland compositor. These settings are applied when a surface is created, when config is reloaded, and when fullscreen handling changes the effective shell behavior.
@@ -370,6 +409,8 @@ Sub-section: `[pattern.transform]`
 - `prevent_overlap = true` increases effective spacing and row/column steps so repeated motifs stay separated by at least the configured `overlap_padding`.
 - `follow_edge_direction = true` rotates motif placement to follow edge direction for directional modes; diagonal families still use `pattern.layout.angle` for their traversal direction.
 - `avoid_corners` and `corner_padding` currently trim top and bottom runs explicitly. Left and right behavior is still driven indirectly by the bezel band bounds rather than a fully symmetric corner model.
+- Corner motif sources in `[pattern.corners]` are rendered independently from the side bands, so you can keep `avoid_corners = true` for the edge runs and still place dedicated art into the corners.
+- Pattern motif size is independent from frame thickness. Rustbar keeps the SVG's intrinsic size and applies `pattern.transform.scale` as the sizing control, so changing bezel thickness does not enlarge or shrink the motif.
 
 - `repeat`: draws a single repeated line through each enabled frame band.
 - `single`: draws one motif centered in each enabled frame band.
@@ -409,8 +450,12 @@ Sub-section: `[pattern.corners]`
 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `avoid_corners` | Boolean | `false` | If true, pattern stops before reaching corner areas. |
+| `avoid_corners` | Boolean | `false` | If true, side-band pattern stops before reaching corner areas. |
 | `corner_padding`| Float | `12.0` | Padding distance from corners when `avoid_corners` is true. |
+| `top_left` | String | (None) | SVG motif source used only for the top-left corner. |
+| `top_right` | String | (None) | SVG motif source used only for the top-right corner. |
+| `bottom_left` | String | (None) | SVG motif source used only for the bottom-left corner. |
+| `bottom_right` | String | (None) | SVG motif source used only for the bottom-right corner. |
 
 ### Layout Controls
 

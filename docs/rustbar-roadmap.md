@@ -21,7 +21,7 @@ This document is the canonical reference for the current project state as verifi
 - Core Wayland layer-shell startup and per-output surface creation are implemented.
 - One logical layer-shell surface is created per detected output.
 - Decorative frame rendering is implemented with per-side thickness, inner rounded corners, outer highlight, bezel shadow, and optional inner shadow.
-- SVG pattern rendering is implemented with multiple placement modes, transform controls, side enablement, per-side motif sources, corner avoidance, clipping, deterministic seeded jitter, and basic failure logging.
+- SVG pattern rendering is implemented with multiple placement modes, transform controls, side enablement, per-side motif sources, dedicated corner motifs, corner avoidance, clipping, deterministic seeded jitter, and basic failure logging.
 - TOML configuration loading is implemented with defaults, monitor overrides, include support, variable expansion, and config-file live reload.
 - Output removal is handled, and new outputs can be added during sync/reload.
 - Unit tests currently cover config resolution/include behavior, rendering paths, and shell/layer mapping helpers. A live Wayland protocol trace on 2026-03-26 also confirmed per-output layer-surface creation and several shell-policy requests on Hyprland.
@@ -166,10 +166,10 @@ Checklist:
 | Spacing | Implemented | [x] | [x] | [x] | [ ] | `spacing` and `offset` are used in layout. | None. |
 | Offset | Implemented | [x] | [x] | [x] | [ ] | Shared offset logic exists across modes. | None. |
 | Rotation | Implemented | [x] | [x] | [x] | [ ] | Layout and transform rotation both exist. | Document mode-specific rotation semantics. |
-| Scale | Implemented | [x] | [x] | [x] | [ ] | Global motif scale exists. | Document how extent-based scaling behaves. |
+| Scale | Implemented | [x] | [x] | [x] | [ ] | Global motif scale exists and now applies independently from frame thickness. | Add visual examples for different SVG intrinsic sizes. |
 | Deterministic variation | Implemented | [x] | [x] | [x] | [ ] | Seeded RNG drives jitter. | Add tests for deterministic output stability if needed. |
 | Per-side enable/disable | Implemented | [x] | [x] | [x] | [ ] | Pattern can be enabled per side. | None. |
-| Corner handling | Partially implemented | [x] | [x] | [x] | [ ] | `avoid_corners` and padding exist for top/bottom trimming; left/right behavior is implicit through band bounds. | Add clearer docs and visual validation. |
+| Corner handling | Partially implemented | [x] | [x] | [x] | [ ] | `avoid_corners` and padding exist for side-band trimming, dedicated corner motifs now exist, and mixed-thickness layouts no longer change motif size. The remaining gap is a more symmetric corner-avoidance model for left/right edges. | Tighten left/right corner-trim semantics and add more visual examples. |
 | Diagonal mode | Implemented | [x] | [x] | [x] | [ ] | Real diagonal traversal is present. | Add examples and edge-case tests. |
 | Path-follow support | Not implemented | [ ] | [ ] | [ ] | [ ] | No support for following rounded frame contours or arbitrary paths. | Defer to later release. |
 | Failure handling for missing/invalid SVG files | Partially implemented | [x] | [x] | [x] | [ ] | Missing/read/parse failures are now cached by path and mtime so rustbar warns once per asset state instead of on every redraw, but there is still no surfaced UI/error summary. | Improve user-facing diagnostics. |
@@ -239,8 +239,8 @@ Checklist:
 | Old TV bezel mode | Not implemented | No dedicated mode found. | Defer as preset pack. |
 | Texture and pattern composition | Not implemented | Only SVG motif layer exists. | Design rendering stack first. |
 | Side-specific motifs | Implemented | Pattern configs can now provide per-side SVG sources through `[pattern.sources]`, with fallback to the global `pattern.source`. | Consider per-side pattern presets only if more workflow simplification is needed. |
-| Dedicated corner motifs | Not implemented | No corner-specific asset path or layout logic. | Consider for v1.5+. |
-| Runtime IPC / commands | Not implemented | No control socket or command interface exists. | Revisit after config/live-reload hardening. |
+| Dedicated corner motifs | Implemented | Corner-specific SVG sources can now be provided through `[pattern.corners]` for each of the four corners. | Add screenshots and more preset-style examples later. |
+| Runtime IPC / commands | Implemented | Rustbar now exposes a local Unix socket at `XDG_RUNTIME_DIR/rustbar.sock` with `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit` commands, and the repo includes `scripts/rustbarctl.sh` as a helper wrapper. | Extend only if richer query/status commands prove necessary. |
 | Theme integration | Not implemented | No compositor or desktop theme bridge. | Future only. |
 | Pywal integration | Not implemented | No pywal code found. | Future only. |
 | Advanced effects | Not implemented | Beyond current shadows/highlights/patterns, no effect stack exists. | Defer. |
@@ -410,10 +410,10 @@ Selected rendering strategy:
 
 ## 8. Recommended Immediate Next Steps
 
-1. Rerun performance captures in both debug and release builds now that retained per-output layer caches are in place.
-2. Verify that one file save now produces one config reload, simple TOML color edits stay fast in release mode, and watcher-noise logs are reduced.
-3. If redraw time is still too high, split cache granularity further or specialize simple pattern modes using tiny-skia pattern shaders.
-4. After performance is under control, resume broader compositor verification and keep geometry/output-lifecycle docs aligned with any behavior changes.
+1. If debug-build redraw time still matters for development ergonomics, continue hotspot work or specialize simple pattern modes using tiny-skia pattern shaders.
+2. After runtime ergonomics are in a comfortable state, resume broader compositor verification and keep geometry/output-lifecycle docs aligned with any behavior changes.
+3. Add screenshot examples showing thickness-independent pattern sizing across mixed bezel layouts.
+4. Decide whether the runtime socket should grow beyond the current minimal status/query surface.
 
 ## 9. Active Verification Step
 
@@ -455,6 +455,12 @@ The Hyprland shell/layer verification pass is now complete across shell behavior
 - [x] Corrected the debounce regression that blocked legitimate hot reloads
 - [x] Changed watcher reconfiguration to diff old/new watched files instead of unwatching and rewatching everything on each reload
 - [x] Added per-side SVG motif sources through `[pattern.sources]` with config merge, validation, rendering, and tests
+- [x] Added dedicated corner SVG motif sources through `[pattern.corners]` with validation, rendering, and tests
+- [x] Added a basic runtime control socket with `reload`, `refresh`, `fullscreen`, and `quit` commands
+- [x] Added `scripts/rustbarctl.sh` as a helper for the runtime control socket
+- [x] Added a `status` runtime command for live socket queries
+- [x] Added `show`, `hide`, and `toggle` runtime visibility commands
+- [x] Fixed pattern sizing so mixed-thickness layouts no longer rescale motifs with bezel thickness
 - [x] Fixed SHM buffer attachment to use SCTK buffer activation and avoid inactive-buffer release warnings
 - [x] Verified in the latest release capture that inactive-buffer release warnings are gone and reload timing remains healthy
 - [x] Reran performance capture after the first optimization

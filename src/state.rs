@@ -40,6 +40,7 @@ pub struct State {
     pub render_caches: HashMap<u32, crate::render::FrameRenderCache>,
     pub last_reload_at: Option<std::time::Instant>,
     pub fullscreen_hidden: HashSet<u32>,
+    pub manually_hidden: bool,
     pub watcher: Option<notify::RecommendedWatcher>,
 }
 
@@ -188,6 +189,29 @@ impl State {
         );
     }
 
+    pub fn surface_is_hidden(&self, surface_id: u32) -> bool {
+        self.manually_hidden || self.fullscreen_hidden.contains(&surface_id)
+    }
+
+    pub fn set_manual_hidden(&mut self, hidden: bool, qh: &QueueHandle<Self>) {
+        if self.manually_hidden == hidden {
+            return;
+        }
+        self.manually_hidden = hidden;
+
+        for layer in &self.active_surfaces {
+            let surface_id = layer.wl_surface().id().protocol_id();
+            if let Some(name) = self.output_names.get(&surface_id) {
+                let m_config = self.config.for_monitor(name);
+                let layer_config = m_config.layer.unwrap_or_default();
+                let effective_hidden = self.surface_is_hidden(surface_id);
+                self.apply_layer_surface_config(layer, qh, &layer_config, effective_hidden);
+            }
+        }
+
+        self.refresh_all();
+    }
+
     pub fn refresh_all(&mut self) {
         let surface_ids: Vec<u32> = self
             .active_surfaces
@@ -196,14 +220,55 @@ impl State {
             .collect();
 
         for surface_id in surface_ids {
-            let transparent = self.fullscreen_hidden.contains(&surface_id);
+            let transparent = self.surface_is_hidden(surface_id);
             self.draw_surface(surface_id, transparent);
         }
     }
 
     pub fn refresh_surface(&mut self, surface_id: u32) {
-        let transparent = self.fullscreen_hidden.contains(&surface_id);
+        let transparent = self.surface_is_hidden(surface_id);
         self.draw_surface(surface_id, transparent);
+    }
+
+    pub fn status_summary(&self) -> String {
+        let mut outputs: Vec<String> = self.output_names.values().cloned().collect();
+        outputs.sort();
+        outputs.dedup();
+
+        let mut hidden_outputs: Vec<String> = self
+            .fullscreen_hidden
+            .iter()
+            .filter_map(|surface_id| self.output_names.get(surface_id).cloned())
+            .collect();
+        hidden_outputs.sort();
+        hidden_outputs.dedup();
+
+        format!(
+            "status=ok
+config_path={}
+loaded_files={}
+active_surfaces={}
+outputs={}
+fullscreen_hidden={}
+fullscreen_outputs={}
+manually_hidden={}
+",
+            crate::config::Config::resolve_path().display(),
+            self.config.loaded_files.len(),
+            self.active_surfaces.len(),
+            if outputs.is_empty() {
+                "none".to_string()
+            } else {
+                outputs.join(",")
+            },
+            self.fullscreen_hidden.len(),
+            if hidden_outputs.is_empty() {
+                "none".to_string()
+            } else {
+                hidden_outputs.join(",")
+            },
+            self.manually_hidden,
+        )
     }
 
     pub fn surface_id_for_output_id(&self, output_id: u32) -> Option<u32> {
@@ -270,7 +335,7 @@ impl State {
             .find(|layer| layer.wl_surface().id().protocol_id() == surface_id)
         {
             let layer_config = m_config.layer.unwrap_or_default();
-            let hidden = self.fullscreen_hidden.contains(&surface_id);
+            let hidden = self.surface_is_hidden(surface_id);
             self.apply_layer_surface_config(layer, qh, &layer_config, hidden);
         }
 
@@ -383,7 +448,7 @@ impl State {
             if let Some(name) = self.output_names.get(&surface_id) {
                 let m_config = self.config.for_monitor(name);
                 let layer_config = m_config.layer.unwrap_or_default();
-                let hidden = self.fullscreen_hidden.contains(&surface_id);
+                let hidden = self.surface_is_hidden(surface_id);
                 self.apply_layer_surface_config(layer, qh, &layer_config, hidden);
             }
         }

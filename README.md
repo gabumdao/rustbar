@@ -13,9 +13,11 @@
 - **User-Defined Presets**: Define reusable style presets in config and apply them globally or per monitor before explicit overrides.
 - **Output-Aware Buffer Handling**: Rustbar now applies per-output buffer scale and buffer transform state so HiDPI outputs and rotated outputs can use correctly sized buffers when the compositor supports those Wayland surface features.
 - **Live Reloading**: Automatically reloads configuration on-the-fly when it detects changes to the `rustbar.toml` file.
+- **Runtime Commands**: A local control socket can trigger `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit` commands without editing config files, and the repo now ships a small `scripts/rustbarctl.sh` helper for it.
 - **Configurable Layer Behavior**: The layer-shell surface can be placed on `background`, `bottom`, `top`, or `overlay`, with configurable namespace, exclusive zone, click-through, and keyboard interactivity.
 - **Hyprland Fullscreen Handling**: On Hyprland, rustbar listens for monitor/fullscreen changes and hides the frame on fullscreen outputs by swapping in a transparent, non-interactive surface state.
-- **SVG Pattern Layer**: Decorative SVG motifs can be repeated along the frame bezel with configurable scaling, rotation, spacing, jitter, and per-side motif sources for highly stylized visual themes.
+- **SVG Pattern Layer**: Decorative SVG motifs can be repeated along the frame bezel with configurable scaling, rotation, spacing, jitter, per-side motif sources, and dedicated corner motifs for highly stylized visual themes.
+- **Thickness-Independent Pattern Scaling**: Pattern size follows the SVG asset and `pattern.transform.scale`, not the bezel thickness, so changing frame thickness does not silently rescale motifs.
 
 ## Installation
 
@@ -85,6 +87,10 @@ opacity = 0.2
 top = "top-star.svg"
 bottom = "bottom-star.svg"
 
+[pattern.corners]
+top_left = "corner-gem.svg"
+top_right = "corner-gem.svg"
+
 [pattern.layout]
 angle = 45.0              # Placement direction for diagonal bands
 
@@ -99,6 +105,12 @@ jitter_rotation = 15.0
 *Note: Colors can optionally include an alpha channel (e.g. `#000000CC`).*
 
 Runtime notes: rustbar creates one layer-shell surface per enabled output. On compositors that support the relevant `wl_surface` features, it now applies output-specific buffer scale and buffer transform automatically. Live compositor verification for scale changes and rotated outputs is still pending.
+
+Runtime control note:
+
+- Rustbar listens on `XDG_RUNTIME_DIR/rustbar.sock` for simple commands such as `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit`.
+- Example: `printf 'reload\n' | socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/rustbar.sock"`
+- Helper: `scripts/rustbarctl.sh hide`, `scripts/rustbarctl.sh show`, or `scripts/rustbarctl.sh status`
 
 Validation and logging notes:
 
