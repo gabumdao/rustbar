@@ -38,7 +38,7 @@ This document is the canonical reference for the current project state as verifi
 - No gradients, texture layer, composition stack, IPC commands, animation, theme integration, or visual tooling. User-defined presets are now implemented, but shipped preset packs do not exist yet.
 - No explicit validation/error-reporting layer for invalid config beyond parse failure and warning logs.
 - No integration or compositor-level tests for multi-monitor, hotplug, fullscreen, click-through, or idle behavior.
-- No documented release plan or production-readiness criteria. A basic compositor support matrix is now documented, but broader coverage is still incomplete.
+- A concrete release checklist now exists, but broader compositor coverage is still incomplete.
 
 ## 3. Status Legend
 
@@ -240,7 +240,7 @@ Checklist:
 | Texture and pattern composition | Not implemented | Only SVG motif layer exists. | Design rendering stack first. |
 | Side-specific motifs | Implemented | Pattern configs can now provide per-side SVG sources through `[pattern.sources]`, with fallback to the global `pattern.source`. | Consider per-side pattern presets only if more workflow simplification is needed. |
 | Dedicated corner motifs | Implemented | Corner-specific SVG sources can now be provided through `[pattern.corners]` for each of the four corners. | Add screenshots and more preset-style examples later. |
-| Runtime IPC / commands | Implemented | Rustbar now exposes a local Unix socket at `XDG_RUNTIME_DIR/rustbar.sock` with `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, `list-outputs`, and `quit` commands. `show`/`hide`/`toggle` and `status` can target a single output name, `reload`/`refresh`, `fullscreen`, `show`/`hide`/`toggle`, `status`, and `list-outputs` can return pretty JSON via `--json`, reload/refresh/fullscreen/visibility commands return the updated state instead of only `ok`, `list-outputs` exposes active output discovery, and the repo now includes both a native `rustbarctl` binary and `scripts/rustbarctl.sh` as client wrappers. The native binary also supports `--socket` overrides, `complete-outputs`, shipped shell completion files for Bash, Zsh, and Fish, and an install helper script for those completion files. | Extend only if richer query/status commands prove necessary. |
+| Runtime IPC / commands | Implemented | Rustbar now exposes a local Unix socket at `XDG_RUNTIME_DIR/rustbar.sock` with `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, `list-outputs`, and `quit` commands. `show`/`hide`/`toggle` and `status` can target a single output name, `reload`/`refresh`, `fullscreen`, `show`/`hide`/`toggle`, `status`, and `list-outputs` can return pretty JSON via `--json`, reload/refresh/fullscreen/visibility commands return the updated state instead of only `ok`, `list-outputs` exposes active output discovery, and the repo now includes both a native `rustbarctl` binary and `scripts/rustbarctl.sh` as client wrappers. The native binary also supports `--socket` overrides, `complete-outputs`, shipped shell completion files for Bash, Zsh, and Fish, an install helper script for those completion files, and `make install` style targets for repeatable local installation. | Extend only if richer query/status commands prove necessary. |
 | Theme integration | Not implemented | No compositor or desktop theme bridge. | Future only. |
 | Pywal integration | Not implemented | No pywal code found. | Future only. |
 | Advanced effects | Not implemented | Beyond current shadows/highlights/patterns, no effect stack exists. | Defer. |
@@ -261,6 +261,8 @@ Checklist:
 - Equivalent compositor-specific verification notes still need to be added for Sway and any other non-Hyprland target.
 - The configuration guide now includes a screenshot/comparison checklist for future pattern captures, but the actual screenshots are still missing.
 - Visual compositor verification notes still need to be added once the remaining manual checks are run.
+- The new release checklist should be kept in sync any time install, packaging, compositor claims, or runtime-control workflows change.
+- A release-notes template now exists, but it still needs to be used consistently once tagged releases begin.
 
 ### Implemented but under-documented
 
@@ -414,6 +416,8 @@ Selected rendering strategy:
 2. Add screenshot examples showing thickness-independent pattern sizing across mixed bezel layouts.
 3. If debug-build redraw time still matters for development ergonomics, continue hotspot work or specialize simple pattern modes using tiny-skia pattern shaders.
 4. Decide whether the runtime socket should grow beyond the current minimal status/query surface.
+5. Use [`docs/release-checklist.md`](/home/walkerofdoom/homolog/rustbar/docs/release-checklist.md) as the ship gate for the first tagged release and keep it updated as install/runtime workflows evolve.
+6. Use [`docs/release-notes-template.md`](/home/walkerofdoom/homolog/rustbar/docs/release-notes-template.md) for the first tagged release so support notes and known limits stay consistent with the roadmap.
 
 ## 9. Active Verification Step
 
@@ -460,6 +464,7 @@ The Hyprland shell/layer verification pass is now complete for the original shel
 - [x] Added a native `rustbarctl` binary for the runtime control socket
 - [x] Added `scripts/rustbarctl.sh` as a helper for the runtime control socket
 - [x] Added `scripts/install-completions.sh` for installing completion files
+- [x] Added a `Makefile` with repeatable install targets for binaries and completions
 - [x] Added a `status` runtime command for live socket queries
 - [x] Added `show`, `hide`, and `toggle` runtime visibility commands
 - [x] Added output-scoped runtime visibility control by Wayland output name
@@ -492,3 +497,5 @@ The Hyprland shell/layer verification pass is now complete for the original shel
 - [ ] Pattern mode examples added
 - [ ] Multi-monitor behavior documented
 - [ ] Runtime logging and troubleshooting documented
+- [x] Release checklist added and linked from contributor-facing docs
+- [x] Release notes template added for tagged releases

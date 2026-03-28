@@ -36,7 +36,12 @@ Ensure you have a recent Rust toolchain installed, as well as a compatible Wayla
 
 3. The compiled binaries will be located in the `target/release/` directory, including `rustbar` and `rustbarctl`.
 
-4. Optional: install shell completions:
+4. Optional: install binaries and completions into standard user-local locations:
+   ```bash
+   make install
+   ```
+
+5. Optional: install only shell completions:
    ```bash
    scripts/install-completions.sh --all
    ```
@@ -119,6 +124,8 @@ Runtime control note:
 - Shell helper: `scripts/rustbarctl.sh reload --json`, `scripts/rustbarctl.sh refresh --json`, `scripts/rustbarctl.sh fullscreen --json`, `scripts/rustbarctl.sh hide --json`, `scripts/rustbarctl.sh show DP-1`, `scripts/rustbarctl.sh toggle HDMI-A-1 --json`, `scripts/rustbarctl.sh status DP-1 --json`, or `scripts/rustbarctl.sh list-outputs --json`
 - Shell completion scripts now live under `completions/` for Bash, Zsh, and Fish.
 - `scripts/install-completions.sh --all` installs them into standard user-local locations.
+- `make install` builds `rustbar` and `rustbarctl`, installs them under `$(HOME)/.local/bin` by default, and installs completions too.
+- For a repeatable ship checklist before tagging a version, see [`docs/release-checklist.md`](/home/walkerofdoom/homolog/rustbar/docs/release-checklist.md).
 
 Validation and logging notes:
 

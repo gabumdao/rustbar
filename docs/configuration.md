@@ -309,6 +309,7 @@ Current notes:
 - Typical installs: source the Bash file manually, place `_rustbarctl` somewhere on your Zsh `fpath`, or copy `rustbarctl.fish` into `~/.config/fish/completions/`.
 - The repository also includes `scripts/install-completions.sh` to install Bash, Zsh, and Fish completions into standard user-local locations.
 - Examples: `scripts/install-completions.sh --all`, `scripts/install-completions.sh --zsh`, or `scripts/install-completions.sh --bash --prefix ~/.local/share`.
+- For a repeatable local install path, the repository now also includes a `Makefile` with `make install`, `make install-binaries`, and `make install-completions` targets.
 - `list-outputs` is a compact discovery command for finding exact output names before using output-scoped commands like `status DP-1` or `hide HDMI-A-1`.
 - `--json` returns pretty-printed JSON so shell scripts and status bars can consume the same runtime data without parsing the plain-text format.
 
