@@ -12,7 +12,7 @@ Commands:
   show         Force all rustbar surfaces visible, or one output if given
   hide         Force all rustbar surfaces hidden, or one output if given
   toggle       Toggle manual visibility for all surfaces, or one output if given
-  status       Print a live rustbar status summary
+  status       Print a live rustbar status summary, or one output if given
   quit         Stop rustbar cleanly
   help         Show this help
 EOF

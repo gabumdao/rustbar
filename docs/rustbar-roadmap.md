@@ -240,7 +240,7 @@ Checklist:
 | Texture and pattern composition | Not implemented | Only SVG motif layer exists. | Design rendering stack first. |
 | Side-specific motifs | Implemented | Pattern configs can now provide per-side SVG sources through `[pattern.sources]`, with fallback to the global `pattern.source`. | Consider per-side pattern presets only if more workflow simplification is needed. |
 | Dedicated corner motifs | Implemented | Corner-specific SVG sources can now be provided through `[pattern.corners]` for each of the four corners. | Add screenshots and more preset-style examples later. |
-| Runtime IPC / commands | Implemented | Rustbar now exposes a local Unix socket at `XDG_RUNTIME_DIR/rustbar.sock` with `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit` commands. `show`/`hide`/`toggle` can target a single output name, and the repo includes `scripts/rustbarctl.sh` as a helper wrapper. | Extend only if richer query/status commands prove necessary. |
+| Runtime IPC / commands | Implemented | Rustbar now exposes a local Unix socket at `XDG_RUNTIME_DIR/rustbar.sock` with `reload`, `refresh`, `fullscreen`, `show`, `hide`, `toggle`, `status`, and `quit` commands. `show`/`hide`/`toggle` and `status` can target a single output name, and the repo includes `scripts/rustbarctl.sh` as a helper wrapper. | Extend only if richer query/status commands prove necessary. |
 | Theme integration | Not implemented | No compositor or desktop theme bridge. | Future only. |
 | Pywal integration | Not implemented | No pywal code found. | Future only. |
 | Advanced effects | Not implemented | Beyond current shadows/highlights/patterns, no effect stack exists. | Defer. |
@@ -410,14 +410,14 @@ Selected rendering strategy:
 
 ## 8. Recommended Immediate Next Steps
 
-1. If debug-build redraw time still matters for development ergonomics, continue hotspot work or specialize simple pattern modes using tiny-skia pattern shaders.
-2. After runtime ergonomics are in a comfortable state, resume broader compositor verification and keep geometry/output-lifecycle docs aligned with any behavior changes.
-3. Add screenshot examples showing thickness-independent pattern sizing across mixed bezel layouts.
+1. Treat the prepared Sway pass as deferred until Sway is part of the active environment again.
+2. Add screenshot examples showing thickness-independent pattern sizing across mixed bezel layouts.
+3. If debug-build redraw time still matters for development ergonomics, continue hotspot work or specialize simple pattern modes using tiny-skia pattern shaders.
 4. Decide whether the runtime socket should grow beyond the current minimal status/query surface.
 
 ## 9. Active Verification Step
 
-The Hyprland shell/layer verification pass is now complete across shell behavior, per-monitor reload behavior, hotplug/output-change behavior, and output-aware scale/transform handling. The per-output lifecycle and monitor-override precedence are documented in the configuration guide, and the checklist now records the passing Hyprland results. The first Hyprland performance captures exposed a severe runtime issue: redraws started in the 11.6s-12.7s range, then improved into the 3.0s-4.2s range after several allocation-focused optimizations. Release-build captures are now in a good range, with redraws around 42ms-154ms and low idle CPU after the retained-cache work. Hot reload is back to one reload per save, watcher churn has been reduced, and the SHM buffer-warning cleanup is now verified in the latest release capture: no inactive-buffer release warnings appeared, redraws stayed in the 41.773ms-145.771ms range, and idle CPU averaged 5.14%. The next immediate runtime step is to identify the next remaining render hotspot only if debug-build development ergonomics still matter, otherwise broader compositor verification can resume.
+The Hyprland shell/layer verification pass is now complete for the original shell, output, scale/transform, runtime-control, and layer-selection coverage recorded in the checklist. Release-build runtime behavior remains in a good range from the latest capture. The prepared Sway pass remains available in the checklist, but it is explicitly deferred until Sway is part of the active environment again.
 
 ## 10. Contributor Tracking Checklist
 
@@ -461,6 +461,7 @@ The Hyprland shell/layer verification pass is now complete across shell behavior
 - [x] Added a `status` runtime command for live socket queries
 - [x] Added `show`, `hide`, and `toggle` runtime visibility commands
 - [x] Added output-scoped runtime visibility control by Wayland output name
+- [x] Added output-filtered `status <output-name>` runtime queries
 - [x] Fixed pattern sizing so mixed-thickness layouts no longer rescale motifs with bezel thickness
 - [x] Fixed SHM buffer attachment to use SCTK buffer activation and avoid inactive-buffer release warnings
 - [x] Verified in the latest release capture that inactive-buffer release warnings are gone and reload timing remains healthy

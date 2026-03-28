@@ -259,7 +259,7 @@ Supported commands:
 - `show [output-name]`: force all rustbar surfaces visible, or one named output when provided
 - `hide [output-name]`: force all rustbar surfaces hidden, or one named output when provided
 - `toggle [output-name]`: toggle manual visibility for all rustbar surfaces, or one named output when provided
-- `status`: print a live runtime summary
+- `status [output-name]`: print the full runtime summary, or one named output when provided
 - `quit`: stop rustbar cleanly
 
 Example usage:
@@ -276,6 +276,7 @@ scripts/rustbarctl.sh hide
 scripts/rustbarctl.sh show DP-1
 scripts/rustbarctl.sh toggle HDMI-A-1
 scripts/rustbarctl.sh status
+scripts/rustbarctl.sh status DP-1
 ```
 
 Current notes:
@@ -283,7 +284,7 @@ Current notes:
 - The socket is local to the current user session.
 - Unknown commands return a short error string instead of changing state.
 - Manual `hide` applies on top of compositor-driven fullscreen hiding; `show` clears only the manual hide state.
-- Output-scoped visibility commands match the Wayland output name rustbar is already using for monitor overrides, such as `DP-1` or `HDMI-A-1`.
+- Output-scoped visibility and status commands match the Wayland output name rustbar is already using for monitor overrides, such as `DP-1` or `HDMI-A-1`.
 - The socket path is recreated on startup if a stale file is left behind.
 - The repository now includes `scripts/rustbarctl.sh` as a small helper around the same socket protocol.
 

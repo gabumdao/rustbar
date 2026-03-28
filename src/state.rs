@@ -320,6 +320,59 @@ manually_hidden_outputs={}
         )
     }
 
+    pub fn status_summary_for_output(&self, output_name: &str) -> String {
+        let normalized = output_name.trim();
+        if normalized.is_empty() {
+            return "error: output name cannot be blank
+".to_string();
+        }
+
+        let Some(surface_id) = self
+            .output_names
+            .iter()
+            .find_map(|(surface_id, name)| if name == normalized { Some(*surface_id) } else { None })
+        else {
+            return format!("status=missing
+output={}
+", normalized);
+        };
+
+        let (logical_width, logical_height) = self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
+        let scale = self.output_scales.get(&surface_id).copied().unwrap_or(1);
+        let transform = self
+            .output_transforms
+            .get(&surface_id)
+            .copied()
+            .unwrap_or(wl_output::Transform::Normal);
+        let fullscreen_hidden = self.fullscreen_hidden.contains(&surface_id);
+        let manually_hidden = self.manually_hidden_outputs.contains(normalized);
+        let effective_hidden = self.surface_is_hidden(surface_id);
+
+        format!(
+            "status=ok
+output={}
+surface_id={}
+logical_size={}x{}
+scale={}
+transform={:?}
+fullscreen_hidden={}
+manually_hidden={}
+globally_hidden={}
+effective_hidden={}
+",
+            normalized,
+            surface_id,
+            logical_width,
+            logical_height,
+            scale,
+            transform,
+            fullscreen_hidden,
+            manually_hidden,
+            self.manually_hidden,
+            effective_hidden,
+        )
+    }
+
     pub fn surface_id_for_output_id(&self, output_id: u32) -> Option<u32> {
         self.output_ids
             .iter()

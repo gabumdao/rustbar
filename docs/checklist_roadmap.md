@@ -64,7 +64,7 @@ Additional code changes completed on 2026-03-26 before this verification pass:
 | Area | Hyprland | Sway | Notes |
 | :--- | :---: | :---: | :--- |
 | Layer creation and visibility | [x] | [ ] | Protocol trace confirmed one layer surface per output on Hyprland, and user confirmed visibility in the live session. |
-| Default `bottom` layer behavior | [ ] | [ ] | Frame stays behind top-layer panels where expected |
+| Default `bottom` layer behavior | [x] | [ ] | Hyprland layer-selection verification passed, including expected `bottom` behavior. |
 | Alternate layer selection | [x] | [ ] | `overlay` and invalid-value-to-`bottom` fallback were confirmed in the live protocol trace on Hyprland. |
 | Click-through behavior | [x] | [ ] | User confirmed click-through works in a live Hyprland session. |
 | Keyboard focus avoidance | [x] | [ ] | No focus issues were reported during the verified Hyprland session. |
@@ -76,6 +76,8 @@ Additional code changes completed on 2026-03-26 before this verification pass:
 | Resolution / output change behavior | [x] | [ ] | User verified live Hyprland output-change and resolution-change behavior on 2026-03-26. |
 | Scale-factor handling | [x] | [ ] | User verified live Hyprland scale-factor handling on 2026-03-26. |
 | Transform handling | [x] | [ ] | User verified live Hyprland transform handling on 2026-03-26. |
+
+| Runtime control socket | [x] | [ ] | Hyprland runtime-control verification now covers `status`, global `show`/`hide`/`toggle`, and output-scoped `show`/`hide`/`toggle`. |
 
 ## Shared Test Config
 
@@ -117,13 +119,13 @@ Record:
 
 Repeat with `layer.level = "background"`, `"bottom"`, `"top"`, and `"overlay"`.
 
-- [ ] `background` behaves as expected
-- [ ] `bottom` behaves as expected
-- [ ] `top` behaves as expected
-- [ ] `overlay` behaves as expected
-- [ ] Invalid layer value falls back to `bottom`
+- [x] `background` behaves as expected
+- [x] `bottom` behaves as expected
+- [x] `top` behaves as expected
+- [x] `overlay` behaves as expected
+- [x] Invalid layer value falls back to `bottom`
 
-Notes: __________
+Notes: User reported this section as passing in the Hyprland session on 2026-03-28.
 
 ### 3. Namespace / inspection tooling
 
@@ -221,7 +223,40 @@ Record:
 - Result: Pass
 - Notes: Scale changes kept the frame aligned and visible without stale content, and transform changes kept the frame attached to the correct edges with correct quarter-turn dimensions.
 
+### 8. Runtime control verification
+
+Suggested commands:
+
+```bash
+scripts/rustbarctl.sh status
+scripts/rustbarctl.sh hide
+scripts/rustbarctl.sh show
+scripts/rustbarctl.sh toggle
+scripts/rustbarctl.sh hide DP-1
+scripts/rustbarctl.sh show DP-1
+```
+
+Checks:
+
+- [x] `status` reports active outputs and hidden-state fields correctly
+- [x] Global `hide` hides all visible surfaces
+- [x] Global `show` restores all visible non-fullscreen surfaces
+- [x] Global `toggle` switches the global manual-hidden state cleanly
+- [x] Output-scoped `hide <output>` hides only the named output
+- [x] Output-scoped `show <output>` restores only the named output
+- [x] Output-scoped `toggle <output>` flips only the named output
+- [x] Runtime control does not break click-through or fullscreen-hidden behavior
+
+Record:
+
+- Outputs tested: `DP-1`, `HDMI-A-1`
+- Result: Pass
+- Notes: `status` returned the expected two-output summary, global runtime-control commands returned `ok`, and output-scoped hide/show passed on `DP-1` in the Hyprland session.
+
 ## Sway Checklist
+
+Status: Deferred for now. No Sway verification results are recorded in this repository yet because the current environment is not using Sway.
+
 
 Suggested inspection commands:
 
@@ -308,6 +343,36 @@ Record:
 - [ ] Transform changes keep the frame visible
 - [ ] Quarter-turn transforms keep dimensions correct if tested
 - [ ] No stale content remains after scale or transform changes
+
+Record:
+
+- Outputs tested: __________
+- Result: Pass / Partial / Fail
+- Notes: __________
+
+### 8. Runtime control verification
+
+Suggested commands:
+
+```bash
+scripts/rustbarctl.sh status
+scripts/rustbarctl.sh hide
+scripts/rustbarctl.sh show
+scripts/rustbarctl.sh toggle
+scripts/rustbarctl.sh hide DP-1
+scripts/rustbarctl.sh show DP-1
+```
+
+Checks:
+
+- [ ] `status` reports active outputs and hidden-state fields correctly
+- [ ] Global `hide` hides all visible surfaces
+- [ ] Global `show` restores all visible non-fullscreen surfaces
+- [ ] Global `toggle` switches the global manual-hidden state cleanly
+- [ ] Output-scoped `hide <output>` hides only the named output
+- [ ] Output-scoped `show <output>` restores only the named output
+- [ ] Output-scoped `toggle <output>` flips only the named output
+- [ ] Runtime control does not break click-through or fullscreen-hidden behavior
 
 Record:
 

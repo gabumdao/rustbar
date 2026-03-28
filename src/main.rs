@@ -18,6 +18,7 @@ pub enum IpcCommand {
     HideOutput(String),
     ToggleOutput(String),
     Status,
+    StatusOutput(String),
     Quit,
 }
 
@@ -49,7 +50,7 @@ fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
         "show" => output.map(IpcCommand::ShowOutput).or(Some(IpcCommand::Show)),
         "hide" => output.map(IpcCommand::HideOutput).or(Some(IpcCommand::Hide)),
         "toggle" => output.map(IpcCommand::ToggleOutput).or(Some(IpcCommand::Toggle)),
-        "status" | "info" => Some(IpcCommand::Status),
+        "status" | "info" => output.map(IpcCommand::StatusOutput).or(Some(IpcCommand::Status)),
         "quit" | "exit" | "stop" => Some(IpcCommand::Quit),
         _ => None,
     }
@@ -451,6 +452,11 @@ fn run() -> Result<(), String> {
                                 let _ = response_tx.send(state.status_summary());
                             }
                         }
+                        IpcCommand::StatusOutput(output) => {
+                            if let Some(response_tx) = response_tx {
+                                let _ = response_tx.send(state.status_summary_for_output(&output));
+                            }
+                        }
                         IpcCommand::Quit => {
                             state.loop_signal.stop();
                         }
@@ -484,6 +490,7 @@ mod tests {
         assert_eq!(parse_ipc_command("hide HDMI-A-1"), Some(IpcCommand::HideOutput("HDMI-A-1".to_string())));
         assert_eq!(parse_ipc_command("toggle eDP-1"), Some(IpcCommand::ToggleOutput("eDP-1".to_string())));
         assert_eq!(parse_ipc_command("status"), Some(IpcCommand::Status));
+        assert_eq!(parse_ipc_command("status DP-1"), Some(IpcCommand::StatusOutput("DP-1".to_string())));
         assert_eq!(parse_ipc_command("quit"), Some(IpcCommand::Quit));
     }
 
@@ -491,6 +498,7 @@ mod tests {
     fn parse_ipc_command_accepts_aliases_and_whitespace() {
         assert_eq!(parse_ipc_command("  check_fullscreen  "), Some(IpcCommand::CheckFullscreen));
         assert_eq!(parse_ipc_command("info"), Some(IpcCommand::Status));
+        assert_eq!(parse_ipc_command("info HDMI-A-1"), Some(IpcCommand::StatusOutput("HDMI-A-1".to_string())));
         assert_eq!(parse_ipc_command("  show   DP-1  "), Some(IpcCommand::ShowOutput("DP-1".to_string())));
         assert_eq!(parse_ipc_command("EXIT"), Some(IpcCommand::Quit));
         assert_eq!(parse_ipc_command("stop"), Some(IpcCommand::Quit));
