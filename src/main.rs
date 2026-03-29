@@ -41,6 +41,41 @@ pub enum AppEvent {
     Command(IpcCommand, Option<std::sync::mpsc::Sender<String>>),
 }
 
+fn normalize_watch_path(path: &std::path::Path) -> std::path::PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn tracked_reload_files(
+    files: &[std::path::PathBuf],
+) -> std::collections::BTreeSet<std::path::PathBuf> {
+    files.iter().map(|file| normalize_watch_path(file)).collect()
+}
+
+fn watcher_paths(files: &[std::path::PathBuf]) -> std::collections::BTreeSet<std::path::PathBuf> {
+    let mut paths = std::collections::BTreeSet::new();
+    for file in files {
+        let normalized = normalize_watch_path(file);
+        paths.insert(normalized.clone());
+        if let Some(parent) = normalized.parent() {
+            paths.insert(parent.to_path_buf());
+        }
+    }
+    paths
+}
+
+fn event_touches_loaded_file(
+    event: &notify::Event,
+    tracked_files: &std::collections::BTreeSet<std::path::PathBuf>,
+) -> bool {
+    if event.paths.is_empty() {
+        return true;
+    }
+
+    event.paths.iter().any(|path| {
+        tracked_files.contains(path) || tracked_files.contains(&normalize_watch_path(path))
+    })
+}
+
 fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -261,10 +296,19 @@ fn run() -> Result<(), String> {
     let tx_clone = tx.clone();
     let conn_for_reload = conn.clone();
     let qh_for_reload = qh.clone();
+    let watched_reload_files = std::sync::Arc::new(std::sync::Mutex::new(tracked_reload_files(
+        &state.config.loaded_files,
+    )));
+    let watched_reload_files_for_callback = std::sync::Arc::clone(&watched_reload_files);
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         if let Ok(event) = res {
-            if event.kind.is_modify() || event.kind.is_create() {
+            let should_reload = !matches!(event.kind, notify::EventKind::Access(_))
+                && watched_reload_files_for_callback
+                    .lock()
+                    .map(|tracked| event_touches_loaded_file(&event, &tracked))
+                    .unwrap_or(true);
+            if should_reload {
                 let _ = tx_clone.send(AppEvent::ReloadConfig(std::time::Instant::now()));
             }
         }
@@ -272,11 +316,11 @@ fn run() -> Result<(), String> {
     .map_err(|err| format!("failed to create the config file watcher: {}", err))?;
 
     use notify::Watcher;
-    for file in &state.config.loaded_files {
-        if let Err(err) = watcher.watch(file, notify::RecursiveMode::NonRecursive) {
+    for path in watcher_paths(&state.config.loaded_files) {
+        if let Err(err) = watcher.watch(&path, notify::RecursiveMode::NonRecursive) {
             log::warn!(
-                "Failed to watch config file {} for live reload: {}",
-                file.display(),
+                "Failed to watch config path {} for live reload: {}",
+                path.display(),
                 err
             );
         }
@@ -438,18 +482,19 @@ fn run() -> Result<(), String> {
                                     new_config.loaded_files.len()
                                 );
                                 state.config = new_config;
+                                if let Ok(mut tracked) = watched_reload_files.lock() {
+                                    *tracked = tracked_reload_files(&state.config.loaded_files);
+                                }
 
                                 if let Some(watcher) = &mut state.watcher {
                                     use notify::Watcher;
-                                    let old_set: std::collections::BTreeSet<_> =
-                                        old_files.iter().cloned().collect();
-                                    let new_set: std::collections::BTreeSet<_> =
-                                        state.config.loaded_files.iter().cloned().collect();
+                                    let old_set = watcher_paths(&old_files);
+                                    let new_set = watcher_paths(&state.config.loaded_files);
 
                                     for f in old_set.difference(&new_set) {
                                         if let Err(err) = watcher.unwatch(f) {
                                             log::warn!(
-                                                "Failed to stop watching old config file {}: {}",
+                                                "Failed to stop watching old config path {}: {}",
                                                 f.display(),
                                                 err
                                             );
@@ -460,7 +505,7 @@ fn run() -> Result<(), String> {
                                             watcher.watch(f, notify::RecursiveMode::NonRecursive)
                                         {
                                             log::warn!(
-                                                "Failed to watch config file {} after reload: {}",
+                                                "Failed to watch config path {} after reload: {}",
                                                 f.display(),
                                                 err
                                             );
@@ -508,18 +553,19 @@ fn run() -> Result<(), String> {
                                         new_config.loaded_files.len()
                                     );
                                     state.config = new_config;
+                                    if let Ok(mut tracked) = watched_reload_files.lock() {
+                                        *tracked = tracked_reload_files(&state.config.loaded_files);
+                                    }
 
                                     if let Some(watcher) = &mut state.watcher {
                                         use notify::Watcher;
-                                        let old_set: std::collections::BTreeSet<_> =
-                                            old_files.iter().cloned().collect();
-                                        let new_set: std::collections::BTreeSet<_> =
-                                            state.config.loaded_files.iter().cloned().collect();
+                                        let old_set = watcher_paths(&old_files);
+                                        let new_set = watcher_paths(&state.config.loaded_files);
 
                                         for f in old_set.difference(&new_set) {
                                             if let Err(err) = watcher.unwatch(f) {
                                                 log::warn!(
-                                                    "Failed to stop watching old config file {}: {}",
+                                                    "Failed to stop watching old config path {}: {}",
                                                     f.display(),
                                                     err
                                                 );
@@ -530,7 +576,7 @@ fn run() -> Result<(), String> {
                                                 watcher.watch(f, notify::RecursiveMode::NonRecursive)
                                             {
                                                 log::warn!(
-                                                    "Failed to watch config file {} after reload: {}",
+                                                    "Failed to watch config path {} after reload: {}",
                                                     f.display(),
                                                     err
                                                 );
@@ -577,18 +623,19 @@ fn run() -> Result<(), String> {
                                         new_config.loaded_files.len()
                                     );
                                     state.config = new_config;
+                                    if let Ok(mut tracked) = watched_reload_files.lock() {
+                                        *tracked = tracked_reload_files(&state.config.loaded_files);
+                                    }
 
                                     if let Some(watcher) = &mut state.watcher {
                                         use notify::Watcher;
-                                        let old_set: std::collections::BTreeSet<_> =
-                                            old_files.iter().cloned().collect();
-                                        let new_set: std::collections::BTreeSet<_> =
-                                            state.config.loaded_files.iter().cloned().collect();
+                                        let old_set = watcher_paths(&old_files);
+                                        let new_set = watcher_paths(&state.config.loaded_files);
 
                                         for f in old_set.difference(&new_set) {
                                             if let Err(err) = watcher.unwatch(f) {
                                                 log::warn!(
-                                                    "Failed to stop watching old config file {}: {}",
+                                                    "Failed to stop watching old config path {}: {}",
                                                     f.display(),
                                                     err
                                                 );
@@ -599,7 +646,7 @@ fn run() -> Result<(), String> {
                                                 watcher.watch(f, notify::RecursiveMode::NonRecursive)
                                             {
                                                 log::warn!(
-                                                    "Failed to watch config file {} after reload: {}",
+                                                    "Failed to watch config path {} after reload: {}",
                                                     f.display(),
                                                     err
                                                 );
