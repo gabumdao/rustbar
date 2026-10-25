@@ -1426,7 +1426,7 @@ fn merge_global_monitor_sections(value: &mut toml::Value) {
             .filter_map(|key| root.get(key).cloned().map(|v| (key, v)))
             .collect();
     let Some(monitors) = root.get_mut("monitors").and_then(toml::Value::as_table_mut) else { return };
-    for monitor in monitors.values_mut() {
+    for (_, monitor) in monitors.iter_mut() {
         let Some(table) = monitor.as_table_mut() else { continue };
         for (key, global) in &sections {
             if let Some(local) = table.get_mut(*key) {
