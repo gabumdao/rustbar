@@ -1056,6 +1056,8 @@ impl Config {
             warn!("Config warning: {}", warning);
         }
 
+        merge_global_monitor_sections(&mut config_value);
+
         let mut cfg: Config = config_value
             .try_into()
             .map_err(|e| format!("{}: {}", path.display(), e))?;
@@ -1392,11 +1394,7 @@ fn load_value_with_includes(
                     merge_toml_values(&mut merged, inc_val);
                 }
                 Err(e) => {
-                    error!(
-                        "Failed to load included config {}: {}",
-                        inc_path.display(),
-                        e
-                    );
+                    return Err(format!("Failed to load included config {}: {}", inc_path.display(), e).into());
                 }
             }
         }
@@ -1418,6 +1416,26 @@ fn load_value_with_includes(
     visited.pop();
 
     Ok(value)
+}
+
+fn merge_global_monitor_sections(value: &mut toml::Value) {
+    let Some(root) = value.as_table_mut() else { return };
+    let sections: Vec<(&str, toml::Value)> =
+        ["frame_sides", "inner_shadow", "gradient", "pattern", "layer"]
+            .into_iter()
+            .filter_map(|key| root.get(key).cloned().map(|v| (key, v)))
+            .collect();
+    let Some(monitors) = root.get_mut("monitors").and_then(toml::Value::as_table_mut) else { return };
+    for monitor in monitors.values_mut() {
+        let Some(table) = monitor.as_table_mut() else { continue };
+        for (key, global) in &sections {
+            if let Some(local) = table.get_mut(*key) {
+                let mut merged = global.clone();
+                merge_toml_values(&mut merged, local.clone());
+                *local = merged;
+            }
+        }
+    }
 }
 
 fn merge_toml_values(base: &mut toml::Value, incoming: toml::Value) {
@@ -1492,6 +1510,42 @@ mod tests {
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    #[test]
+    fn nested_monitor_overrides_keep_global_values() {
+        let mut value: toml::Value = toml::from_str(r#"
+[pattern.transform]
+scale = 2.0
+rotation = 10.0
+[layer]
+level = "overlay"
+click_through = false
+[monitors."DP-1".pattern.transform]
+rotation = 45.0
+[monitors."DP-1".layer]
+level = "top"
+"#).unwrap();
+        merge_global_monitor_sections(&mut value);
+        let cfg: Config = value.try_into().unwrap();
+        let monitor = cfg.for_monitor("DP-1");
+        let transform = monitor.pattern.unwrap().transform.unwrap();
+        assert_eq!(transform.scale, 2.0);
+        assert_eq!(transform.rotation, 45.0);
+        let layer = monitor.layer.unwrap();
+        assert_eq!(layer.level, "top");
+        assert!(!layer.click_through);
+    }
+
+    #[test]
+    fn missing_include_fails_config_load() {
+        let dir = temp_dir().join(format!("rustbar-includes-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rustbar.toml");
+        fs::write(&path, "include = [\"missing.toml\"]\n").unwrap();
+        let result = Config::try_load(&path);
+        assert!(result.is_err());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
