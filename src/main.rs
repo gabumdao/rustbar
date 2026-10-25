@@ -3,7 +3,7 @@ pub mod render;
 pub mod state;
 pub mod wayland;
 
-use std::{io::{BufRead, BufReader, Write}, os::unix::net::UnixListener, path::PathBuf};
+use std::{io::{BufRead, BufReader, Read, Write}, os::unix::net::UnixListener, path::PathBuf};
 use wayland_client::Connection;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
