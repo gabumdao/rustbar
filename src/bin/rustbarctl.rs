@@ -64,8 +64,8 @@ struct ParsedCli {
 }
 
 fn default_socket_path() -> Result<PathBuf, String> {
-    let runtime_dir = env::var("XDG_RUNTIME_DIR")
-        .map_err(|_| "XDG_RUNTIME_DIR is not set.".to_string())?;
+    let runtime_dir =
+        env::var("XDG_RUNTIME_DIR").map_err(|_| "XDG_RUNTIME_DIR is not set.".to_string())?;
     Ok(PathBuf::from(runtime_dir).join("rustbar.sock"))
 }
 
@@ -79,7 +79,9 @@ fn parse_cli(args: &[String]) -> Result<ParsedCli, String> {
                 let Some(path) = args.get(index + 1) else {
                     return Err("Missing value for --socket.
 
-".to_string() + usage());
+"
+                    .to_string()
+                        + usage());
                 };
                 socket_override = Some(PathBuf::from(path));
                 index += 2;
@@ -113,9 +115,9 @@ fn parse_cli(args: &[String]) -> Result<ParsedCli, String> {
                     "complete-outputs accepts at most one optional prefix argument.
 
 "
-                        .to_string()
+                    .to_string()
                         + usage(),
-                )
+                );
             }
         };
         return Ok(ParsedCli {
@@ -125,9 +127,13 @@ fn parse_cli(args: &[String]) -> Result<ParsedCli, String> {
     }
 
     if !command_is_supported(command) {
-        return Err(format!("Unknown command: {}
+        return Err(format!(
+            "Unknown command: {}
 
-{}", command, usage()));
+{}",
+            command,
+            usage()
+        ));
     }
 
     let request = args[index..].join(" ");
@@ -153,14 +159,36 @@ fn send_request(socket_path: &PathBuf, request: &str) -> Result<String, String> 
         )
     })?;
     stream
-        .write_all(format!("{}
-", request).as_bytes())
-        .map_err(|err| format!("Failed to send request to {}: {}", socket_path.display(), err))?;
+        .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+        .map_err(|err| format!("Failed to configure socket read timeout: {}", err))?;
+    stream
+        .set_write_timeout(Some(std::time::Duration::from_secs(3)))
+        .map_err(|err| format!("Failed to configure socket write timeout: {}", err))?;
+    stream
+        .write_all(
+            format!(
+                "{}
+",
+                request
+            )
+            .as_bytes(),
+        )
+        .map_err(|err| {
+            format!(
+                "Failed to send request to {}: {}",
+                socket_path.display(),
+                err
+            )
+        })?;
 
     let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|err| format!("Failed to read response from {}: {}", socket_path.display(), err))?;
+    stream.read_to_string(&mut response).map_err(|err| {
+        format!(
+            "Failed to read response from {}: {}",
+            socket_path.display(),
+            err
+        )
+    })?;
 
     if response.is_empty() {
         return Err("Rustbar returned an empty response.".to_string());

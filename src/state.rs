@@ -119,6 +119,14 @@ impl State {
             self.apply_surface_output_state(layer, requested_scale, requested_transform);
         let (width, height) =
             scaled_buffer_dimensions(logical_width, logical_height, scale, transform);
+        let Some(size) = checked_frame_buffer_size(width, height) else {
+            log::warn!(
+                "Skipping invalid or oversized rustbar buffer {}x{}",
+                width,
+                height
+            );
+            return;
+        };
         let output_name = self
             .output_names
             .get(&surface_id)
@@ -127,32 +135,50 @@ impl State {
 
         let render_start = Instant::now();
         let pixels = if transparent {
-            vec![0; (width * height * 4) as usize]
+            vec![0; size]
         } else {
             let m_config = self.config.for_monitor(&output_name);
             if m_config.enabled.unwrap_or(true) {
-                self
-                    .render_caches
+                self.render_caches
                     .entry(surface_id)
                     .or_default()
                     .draw_frame(width, height, &m_config)
             } else {
-                vec![0; (width * height * 4) as usize]
+                vec![0; size]
             }
         };
         let render_elapsed = render_start.elapsed();
+        if pixels.len() != size {
+            log::warn!(
+                "Skipping buffer update for {}: renderer returned {} bytes, expected {}",
+                output_name,
+                pixels.len(),
+                size
+            );
+            return;
+        }
 
         let upload_start = Instant::now();
         let mut committed = false;
         if let Some(shm) = self.shm.as_mut() {
-            let size = (width * height * 4) as usize;
-            let (pool, active_buf) = self.pools.entry(surface_id).or_insert_with(|| {
-                (
-                    SlotPool::new(size, shm).expect("Failed to create slot pool"),
-                    None,
-                )
-            });
-
+            if !self.pools.contains_key(&surface_id) {
+                match SlotPool::new(size, shm) {
+                    Ok(pool) => {
+                        self.pools.insert(surface_id, (pool, None));
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "Unable to allocate SHM slot pool for {}: {}",
+                            output_name,
+                            err
+                        );
+                        return;
+                    }
+                }
+            }
+            let Some((pool, active_buf)) = self.pools.get_mut(&surface_id) else {
+                return;
+            };
             if pool.resize(size).is_ok() {
                 if let Ok((buffer, canvas)) = pool.create_buffer(
                     width as i32,
@@ -197,7 +223,11 @@ impl State {
             .get(&surface_id)
             .map(|name| self.manually_hidden_outputs.contains(name))
             .unwrap_or(false);
-        self.manually_hidden || output_hidden || self.fullscreen_hidden.contains(&surface_id)
+        effective_visibility_hidden(
+            self.manually_hidden,
+            output_hidden,
+            self.fullscreen_hidden.contains(&surface_id),
+        )
     }
 
     pub fn set_manual_hidden(&mut self, hidden: bool, qh: &QueueHandle<Self>) {
@@ -284,7 +314,8 @@ impl State {
         hidden_outputs.sort();
         hidden_outputs.dedup();
 
-        let mut manually_hidden_outputs: Vec<String> = self.manually_hidden_outputs.iter().cloned().collect();
+        let mut manually_hidden_outputs: Vec<String> =
+            self.manually_hidden_outputs.iter().cloned().collect();
         manually_hidden_outputs.sort();
 
         format!(
@@ -325,20 +356,27 @@ manually_hidden_outputs={}
         let normalized = output_name.trim();
         if normalized.is_empty() {
             return "error: output name cannot be blank
-".to_string();
+"
+            .to_string();
         }
 
-        let Some(surface_id) = self
-            .output_names
-            .iter()
-            .find_map(|(surface_id, name)| if name == normalized { Some(*surface_id) } else { None })
-        else {
-            return format!("status=missing
+        let Some(surface_id) = self.output_names.iter().find_map(|(surface_id, name)| {
+            if name == normalized {
+                Some(*surface_id)
+            } else {
+                None
+            }
+        }) else {
+            return format!(
+                "status=missing
 output={}
-", normalized);
+",
+                normalized
+            );
         };
 
-        let (logical_width, logical_height) = self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
+        let (logical_width, logical_height) =
+            self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
         let scale = self.output_scales.get(&surface_id).copied().unwrap_or(1);
         let transform = self
             .output_transforms
@@ -419,12 +457,15 @@ effective_hidden={}
             }
         }
         lines.push(String::new());
-        lines.join("
-")
+        lines.join(
+            "
+",
+        )
     }
 
     fn output_snapshot(&self, output_name: &str, surface_id: u32) -> serde_json::Value {
-        let (logical_width, logical_height) = self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
+        let (logical_width, logical_height) =
+            self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
         let scale = self.output_scales.get(&surface_id).copied().unwrap_or(1);
         let transform = self
             .output_transforms
@@ -464,7 +505,8 @@ effective_hidden={}
         fullscreen_outputs.sort();
         fullscreen_outputs.dedup();
 
-        let mut manually_hidden_outputs: Vec<String> = self.manually_hidden_outputs.iter().cloned().collect();
+        let mut manually_hidden_outputs: Vec<String> =
+            self.manually_hidden_outputs.iter().cloned().collect();
         manually_hidden_outputs.sort();
 
         serde_json::to_string_pretty(&json!({
@@ -482,20 +524,25 @@ effective_hidden={}
             s.push('\n');
             s
         })
-        .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize status\"}\n".to_string())
+        .unwrap_or_else(|_| {
+            "{\"status\":\"error\",\"message\":\"failed to serialize status\"}\n".to_string()
+        })
     }
 
     pub fn status_summary_for_output_json(&self, output_name: &str) -> String {
         let normalized = output_name.trim();
         if normalized.is_empty() {
-            return "{\"status\":\"error\",\"message\":\"output name cannot be blank\"}\n".to_string();
+            return "{\"status\":\"error\",\"message\":\"output name cannot be blank\"}\n"
+                .to_string();
         }
 
-        let Some(surface_id) = self
-            .output_names
-            .iter()
-            .find_map(|(surface_id, name)| if name == normalized { Some(*surface_id) } else { None })
-        else {
+        let Some(surface_id) = self.output_names.iter().find_map(|(surface_id, name)| {
+            if name == normalized {
+                Some(*surface_id)
+            } else {
+                None
+            }
+        }) else {
             return serde_json::to_string_pretty(&json!({
                 "status": "missing",
                 "output": normalized,
@@ -504,7 +551,10 @@ effective_hidden={}
                 s.push('\n');
                 s
             })
-            .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize output status\"}\n".to_string());
+            .unwrap_or_else(|_| {
+                "{\"status\":\"error\",\"message\":\"failed to serialize output status\"}\n"
+                    .to_string()
+            });
         };
 
         serde_json::to_string_pretty(&json!({
@@ -515,7 +565,9 @@ effective_hidden={}
             s.push('\n');
             s
         })
-        .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize output status\"}\n".to_string())
+        .unwrap_or_else(|_| {
+            "{\"status\":\"error\",\"message\":\"failed to serialize output status\"}\n".to_string()
+        })
     }
 
     pub fn list_outputs_summary_json(&self) -> String {
@@ -540,7 +592,9 @@ effective_hidden={}
             s.push('\n');
             s
         })
-        .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize outputs list\"}\n".to_string())
+        .unwrap_or_else(|_| {
+            "{\"status\":\"error\",\"message\":\"failed to serialize outputs list\"}\n".to_string()
+        })
     }
     pub fn surface_id_for_output_id(&self, output_id: u32) -> Option<u32> {
         self.output_ids
@@ -645,22 +699,27 @@ effective_hidden={}
 
                 let mut needs_refresh = false;
                 for (surface_id, hidden, layer_config) in updates {
-                    let was_hidden = self.fullscreen_hidden.contains(&surface_id);
+                    let was_effectively_hidden = self.surface_is_hidden(surface_id);
                     if hidden {
                         self.fullscreen_hidden.insert(surface_id);
                     } else {
                         self.fullscreen_hidden.remove(&surface_id);
                     }
+                    let effectively_hidden = self.surface_is_hidden(surface_id);
 
-                    if let Some(layer) = self
-                        .active_surfaces
-                        .iter()
-                        .find(|layer| layer.wl_surface().id().protocol_id() == surface_id)
-                    {
-                        self.apply_layer_surface_config(layer, qh, &layer_config, hidden);
-                    }
-
-                    if was_hidden != hidden {
+                    if was_effectively_hidden != effectively_hidden {
+                        if let Some(layer) = self
+                            .active_surfaces
+                            .iter()
+                            .find(|layer| layer.wl_surface().id().protocol_id() == surface_id)
+                        {
+                            self.apply_layer_surface_config(
+                                layer,
+                                qh,
+                                &layer_config,
+                                effectively_hidden,
+                            );
+                        }
                         needs_refresh = true;
                     }
                 }
@@ -741,6 +800,24 @@ effective_hidden={}
     }
 }
 
+pub fn effective_visibility_hidden(
+    globally_hidden: bool,
+    output_hidden: bool,
+    fullscreen_hidden: bool,
+) -> bool {
+    globally_hidden || output_hidden || fullscreen_hidden
+}
+
+pub fn checked_frame_buffer_size(width: u32, height: u32) -> Option<usize> {
+    const MAX_FRAME_BYTES: usize = 512 * 1024 * 1024;
+    let stride = width.checked_mul(4)?;
+    if stride > i32::MAX as u32 || height > i32::MAX as u32 {
+        return None;
+    }
+    let size = (stride as usize).checked_mul(height as usize)?;
+    (size <= MAX_FRAME_BYTES).then_some(size)
+}
+
 pub fn normalized_scale(scale_factor: i32) -> u32 {
     scale_factor.max(1) as u32
 }
@@ -800,6 +877,22 @@ pub fn effective_namespace(namespace: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_visibility_takes_precedence_over_fullscreen_updates() {
+        assert!(effective_visibility_hidden(true, false, false));
+        assert!(effective_visibility_hidden(false, true, false));
+        assert!(effective_visibility_hidden(false, false, true));
+        assert!(effective_visibility_hidden(true, false, true));
+        assert!(!effective_visibility_hidden(false, false, false));
+    }
+
+    #[test]
+    fn frame_buffers_reject_overflow_and_large_allocations() {
+        assert_eq!(checked_frame_buffer_size(1920, 1080), Some(1920 * 1080 * 4));
+        assert_eq!(checked_frame_buffer_size(u32::MAX, 1080), None);
+        assert_eq!(checked_frame_buffer_size(16000, 16000), None);
+    }
 
     #[test]
     fn map_layer_falls_back_to_bottom() {

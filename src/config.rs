@@ -1,4 +1,4 @@
-use log::{error, info, warn};
+use log::{info, warn};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -316,7 +316,6 @@ impl Default for PatternSidesConfig {
         }
     }
 }
-
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
 pub struct PatternSourcesConfig {
@@ -793,7 +792,10 @@ fn apply_named_preset(
         return;
     };
 
-    let mut merged = toml::Value::Table(table_without_keys(preset_table, &["preset", "presets", "monitors", "include"]));
+    let mut merged = toml::Value::Table(table_without_keys(
+        preset_table,
+        &["preset", "presets", "monitors", "include"],
+    ));
     merge_toml_values(
         &mut merged,
         toml::Value::Table(table_without_keys(target, excluded_keys)),
@@ -818,7 +820,10 @@ fn apply_presets_to_config_value(value: &mut toml::Value) -> Vec<String> {
     };
 
     let Some(presets) = presets_value.as_table().cloned() else {
-        warnings.push("top-level presets must be a TOML table; preset application will be skipped".to_string());
+        warnings.push(
+            "top-level presets must be a TOML table; preset application will be skipped"
+                .to_string(),
+        );
         return warnings;
     };
 
@@ -830,7 +835,10 @@ fn apply_presets_to_config_value(value: &mut toml::Value) -> Vec<String> {
         &mut warnings,
     );
 
-    if let Some(monitors) = root.get_mut("monitors").and_then(|value| value.as_table_mut()) {
+    if let Some(monitors) = root
+        .get_mut("monitors")
+        .and_then(|value| value.as_table_mut())
+    {
         for (name, monitor_value) in monitors.iter_mut() {
             match monitor_value.as_table_mut() {
                 Some(monitor_table) => apply_named_preset(
@@ -1055,6 +1063,8 @@ impl Config {
         for warning in apply_presets_to_config_value(&mut config_value) {
             warn!("Config warning: {}", warning);
         }
+
+        merge_global_monitor_sections(&mut config_value);
 
         let mut cfg: Config = config_value
             .try_into()
@@ -1392,11 +1402,12 @@ fn load_value_with_includes(
                     merge_toml_values(&mut merged, inc_val);
                 }
                 Err(e) => {
-                    error!(
+                    return Err(format!(
                         "Failed to load included config {}: {}",
                         inc_path.display(),
                         e
-                    );
+                    )
+                    .into());
                 }
             }
         }
@@ -1418,6 +1429,37 @@ fn load_value_with_includes(
     visited.pop();
 
     Ok(value)
+}
+
+fn merge_global_monitor_sections(value: &mut toml::Value) {
+    let Some(root) = value.as_table_mut() else {
+        return;
+    };
+    let sections: Vec<(&str, toml::Value)> = [
+        "frame_sides",
+        "inner_shadow",
+        "gradient",
+        "pattern",
+        "layer",
+    ]
+    .into_iter()
+    .filter_map(|key| root.get(key).cloned().map(|v| (key, v)))
+    .collect();
+    let Some(monitors) = root.get_mut("monitors").and_then(toml::Value::as_table_mut) else {
+        return;
+    };
+    for (_, monitor) in monitors.iter_mut() {
+        let Some(table) = monitor.as_table_mut() else {
+            continue;
+        };
+        for (key, global) in &sections {
+            if let Some(local) = table.get_mut(*key) {
+                let mut merged = global.clone();
+                merge_toml_values(&mut merged, local.clone());
+                *local = merged;
+            }
+        }
+    }
 }
 
 fn merge_toml_values(base: &mut toml::Value, incoming: toml::Value) {
@@ -1492,6 +1534,45 @@ mod tests {
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    #[test]
+    fn nested_monitor_overrides_keep_global_values() {
+        let mut value: toml::Value = toml::from_str(
+            r#"
+[pattern.transform]
+scale = 2.0
+rotation = 10.0
+[layer]
+level = "overlay"
+click_through = false
+[monitors."DP-1".pattern.transform]
+rotation = 45.0
+[monitors."DP-1".layer]
+level = "top"
+"#,
+        )
+        .unwrap();
+        merge_global_monitor_sections(&mut value);
+        let cfg: Config = value.try_into().unwrap();
+        let monitor = cfg.for_monitor("DP-1");
+        let transform = monitor.pattern.unwrap().transform.unwrap();
+        assert_eq!(transform.scale, 2.0);
+        assert_eq!(transform.rotation, 45.0);
+        let layer = monitor.layer.unwrap();
+        assert_eq!(layer.level, "top");
+        assert!(!layer.click_through);
+    }
+
+    #[test]
+    fn missing_include_fails_config_load() {
+        let dir = temp_dir().join(format!("rustbar-includes-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rustbar.toml");
+        fs::write(&path, "include = [\"missing.toml\"]\n").unwrap();
+        let result = Config::try_load(&path);
+        assert!(result.is_err());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1672,11 +1753,17 @@ opacity = 0.3
         assert_eq!(monitor.radius, Some(10));
         assert_eq!(monitor.opacity, Some(0.7));
         assert_eq!(
-            monitor.pattern.as_ref().and_then(|pattern| pattern.source.as_deref()),
+            monitor
+                .pattern
+                .as_ref()
+                .and_then(|pattern| pattern.source.as_deref()),
             Some("thin.svg")
         );
         assert_eq!(
-            monitor.pattern.as_ref().and_then(|pattern| pattern.mode.as_deref()),
+            monitor
+                .pattern
+                .as_ref()
+                .and_then(|pattern| pattern.mode.as_deref()),
             Some("diamond")
         );
         assert_eq!(
@@ -1960,9 +2047,9 @@ level = "overlay"
                 .any(|warning| warning.contains("layer.keyboard_interactivity='sometimes'"))
         );
         assert!(
-            warnings
-                .iter()
-                .any(|warning| warning.contains("pattern layer without setting pattern.source or pattern.sources.<side>"))
+            warnings.iter().any(|warning| warning.contains(
+                "pattern layer without setting pattern.source or pattern.sources.<side>"
+            ))
         );
         assert!(
             warnings
@@ -2106,11 +2193,12 @@ level = "overlay"
         };
 
         let warnings = collect_monitor_validation_warnings("DP-1", &config);
-        assert!(warnings
-            .iter()
-            .any(|warning| warning.contains("pattern.sources.top='missing-top-pattern-asset'")));
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("pattern.sources.top='missing-top-pattern-asset'"))
+        );
     }
-
 
     #[test]
     fn test_collect_monitor_validation_warnings_reports_missing_corner_pattern_asset() {
@@ -2165,9 +2253,9 @@ level = "overlay"
         };
 
         let warnings = collect_monitor_validation_warnings("DP-1", &config);
-        assert!(warnings
-            .iter()
-            .any(|warning| warning.contains("pattern.corners.top_left='missing-corner-pattern-asset'")));
+        assert!(warnings.iter().any(|warning| {
+            warning.contains("pattern.corners.top_left='missing-corner-pattern-asset'")
+        }));
     }
 
     #[test]
