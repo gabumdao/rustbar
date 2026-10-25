@@ -390,7 +390,7 @@ fn run() -> Result<(), String> {
                         let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
                         let mut line = String::new();
                         let read_result = {
-                            let mut reader = BufReader::new(&stream);
+                            let reader = BufReader::new(&stream);
                             reader.take(4097).read_line(&mut line)
                         };
                         if let Err(err) = read_result {
