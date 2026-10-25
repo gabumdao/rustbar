@@ -352,16 +352,24 @@ fn run() -> Result<(), String> {
 
     if let Some(socket_path) = control_socket_path() {
         let tx_control = tx.clone();
-        match std::fs::remove_file(&socket_path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => log::warn!(
-                "Failed to remove stale control socket {}: {}",
-                socket_path.display(),
-                err
-            ),
-        }
+        // Refuse to unlink another running instance's control socket.
+        let socket_ready = match std::os::unix::net::UnixStream::connect(&socket_path) {
+            Ok(_) => {
+                log::error!("Another rustbar instance is already listening on {}", socket_path.display());
+                false
+            }
+            Err(_) if socket_path.exists() => {
+                match std::fs::symlink_metadata(&socket_path) {
+                    Ok(meta) if std::os::unix::fs::FileTypeExt::is_socket(&meta.file_type()) => {
+                        std::fs::remove_file(&socket_path).is_ok()
+                    }
+                    _ => false,
+                }
+            }
+            Err(_) => true,
+        };
 
+        if socket_ready {
         match UnixListener::bind(&socket_path) {
             Ok(listener) => {
                 log::info!(
@@ -378,10 +386,12 @@ fn run() -> Result<(), String> {
                             }
                         };
 
+                        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                        let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
                         let mut line = String::new();
                         let read_result = {
                             let mut reader = BufReader::new(&stream);
-                            reader.read_line(&mut line)
+                            reader.take(4097).read_line(&mut line)
                         };
                         if let Err(err) = read_result {
                             let _ = stream.write_all(
@@ -390,6 +400,10 @@ fn run() -> Result<(), String> {
                             continue;
                         }
 
+                        if line.len() > 4096 || !line.ends_with('\n') {
+                            let _ = stream.write_all(b"error: command too long or unterminated\n");
+                            continue;
+                        }
                         let trimmed = line.trim();
                         match parse_ipc_command(trimmed) {
                             Some(command) => {
@@ -427,6 +441,7 @@ fn run() -> Result<(), String> {
                 );
             }
         }
+        }
     }
 
     if let (Ok(xdg), Ok(sig)) = (
@@ -440,7 +455,7 @@ fn run() -> Result<(), String> {
                 if let Ok(stream) = std::os::unix::net::UnixStream::connect(&socket_path) {
                     use std::io::{BufRead, BufReader};
                     let reader = BufReader::new(stream);
-                    for line in reader.lines().flatten() {
+                    for line in reader.lines().map_while(Result::ok) {
                         if line.starts_with("fullscreen>>")
                             || line.starts_with("workspace>>")
                             || line.starts_with("activewindow>>")
