@@ -152,6 +152,10 @@ fn send_request(socket_path: &PathBuf, request: &str) -> Result<String, String> 
             err
         )
     })?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(3)))
+        .map_err(|err| format!("Failed to configure socket read timeout: {}", err))?;
+    stream.set_write_timeout(Some(std::time::Duration::from_secs(3)))
+        .map_err(|err| format!("Failed to configure socket write timeout: {}", err))?;
     stream
         .write_all(format!("{}
 ", request).as_bytes())
