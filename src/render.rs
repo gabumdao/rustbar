@@ -227,7 +227,6 @@ fn draw_inner_shadow(
     }
 }
 
-
 #[derive(Clone, Copy)]
 enum PatternSide {
     Top,
@@ -244,12 +243,14 @@ struct PreparedMotif {
     oversample: f32,
 }
 
-
 fn motif_cache_key(source: &str, scale_factor: f32) -> String {
     format!("{}|{:.3}", source, scale_factor)
 }
 
-fn pattern_source_for_side<'a>(config: &'a MonitorPatternConfig, side: PatternSide) -> Option<&'a str> {
+fn pattern_source_for_side<'a>(
+    config: &'a MonitorPatternConfig,
+    side: PatternSide,
+) -> Option<&'a str> {
     config
         .sources
         .as_ref()
@@ -300,8 +301,7 @@ fn prepare_motif(
         .map(|tint_hex| parse_hex_color(tint_hex, config.opacity.unwrap_or(1.0)));
     let tinted_motif_pixmap = tint_color.and_then(|tint| {
         let mut tinted = Pixmap::new(motif_pixmap.width(), motif_pixmap.height())?;
-        let target_rect =
-            Rect::from_xywh(0.0, 0.0, tinted.width() as f32, tinted.height() as f32)?;
+        let target_rect = Rect::from_xywh(0.0, 0.0, tinted.width() as f32, tinted.height() as f32)?;
         let mask = tiny_skia::Mask::from_pixmap(motif_pixmap.as_ref(), tiny_skia::MaskType::Alpha);
         let mut paint = Paint::default();
         paint.set_color(tint);
@@ -700,25 +700,41 @@ fn draw_pattern(
             corners_config.top_left.as_deref(),
             outer_rect.left() + t_left / 2.0,
             outer_rect.top() + t_top / 2.0,
-            if t_top > 0.0 && t_left > 0.0 { Some(corner_scale) } else { None },
+            if t_top > 0.0 && t_left > 0.0 {
+                Some(corner_scale)
+            } else {
+                None
+            },
         ),
         (
             corners_config.top_right.as_deref(),
             outer_rect.right() - t_right / 2.0,
             outer_rect.top() + t_top / 2.0,
-            if t_top > 0.0 && t_right > 0.0 { Some(corner_scale) } else { None },
+            if t_top > 0.0 && t_right > 0.0 {
+                Some(corner_scale)
+            } else {
+                None
+            },
         ),
         (
             corners_config.bottom_left.as_deref(),
             outer_rect.left() + t_left / 2.0,
             outer_rect.bottom() - t_bottom / 2.0,
-            if t_bottom > 0.0 && t_left > 0.0 { Some(corner_scale) } else { None },
+            if t_bottom > 0.0 && t_left > 0.0 {
+                Some(corner_scale)
+            } else {
+                None
+            },
         ),
         (
             corners_config.bottom_right.as_deref(),
             outer_rect.right() - t_right / 2.0,
             outer_rect.bottom() - t_bottom / 2.0,
-            if t_bottom > 0.0 && t_right > 0.0 { Some(corner_scale) } else { None },
+            if t_bottom > 0.0 && t_right > 0.0 {
+                Some(corner_scale)
+            } else {
+                None
+            },
         ),
     ];
 
@@ -881,22 +897,24 @@ fn fill_paint_for_frame(rect: Rect, config: &MonitorConfig) -> Paint<'static> {
         if gradient.enabled.unwrap_or(false) {
             let (start, end) = gradient_points(rect, gradient);
             let stops = vec![
-                GradientStop::new(0.0, parse_hex_color(
-                    gradient.start_color.as_deref().unwrap_or("#000000"),
-                    config.opacity.unwrap_or(1.0),
-                )),
-                GradientStop::new(1.0, parse_hex_color(
-                    gradient.end_color.as_deref().unwrap_or("#202020"),
-                    config.opacity.unwrap_or(1.0),
-                )),
+                GradientStop::new(
+                    0.0,
+                    parse_hex_color(
+                        gradient.start_color.as_deref().unwrap_or("#000000"),
+                        config.opacity.unwrap_or(1.0),
+                    ),
+                ),
+                GradientStop::new(
+                    1.0,
+                    parse_hex_color(
+                        gradient.end_color.as_deref().unwrap_or("#202020"),
+                        config.opacity.unwrap_or(1.0),
+                    ),
+                ),
             ];
-            if let Some(shader) = LinearGradient::new(
-                start,
-                end,
-                stops,
-                SpreadMode::Pad,
-                Transform::identity(),
-            ) {
+            if let Some(shader) =
+                LinearGradient::new(start, end, stops, SpreadMode::Pad, Transform::identity())
+            {
                 paint.shader = shader;
                 return paint;
             }
@@ -910,7 +928,11 @@ fn fill_paint_for_frame(rect: Rect, config: &MonitorConfig) -> Paint<'static> {
     paint
 }
 
-fn compute_frame_geometry(width: u32, height: u32, config: &MonitorConfig) -> Option<FrameGeometry> {
+fn compute_frame_geometry(
+    width: u32,
+    height: u32,
+    config: &MonitorConfig,
+) -> Option<FrameGeometry> {
     let t_base = config.thickness.unwrap_or(16) as f32;
     let frame_sides = config
         .frame_sides
@@ -1097,7 +1119,11 @@ fn inner_shadow_layer_signature(
     }
 }
 
-fn pattern_layer_signature(width: u32, height: u32, config: &MonitorConfig) -> PatternLayerSignature {
+fn pattern_layer_signature(
+    width: u32,
+    height: u32,
+    config: &MonitorConfig,
+) -> PatternLayerSignature {
     PatternLayerSignature {
         geometry: geometry_signature(width, height, config),
         pattern: config.pattern.clone(),
@@ -1172,13 +1198,7 @@ fn render_decor_layer(
                 stroke_paint.anti_alias = true;
                 let mut stroke = Stroke::default();
                 stroke.width = hw;
-                pixmap.stroke_path(
-                    &path,
-                    &stroke_paint,
-                    &stroke,
-                    Transform::identity(),
-                    None,
-                );
+                pixmap.stroke_path(&path, &stroke_paint, &stroke, Transform::identity(), None);
                 drew_anything = true;
             }
         }
@@ -1225,11 +1245,7 @@ fn render_decor_layer(
         }
     }
 
-    if drew_anything {
-        Some(pixmap)
-    } else {
-        None
-    }
+    if drew_anything { Some(pixmap) } else { None }
 }
 
 fn render_inner_shadow_layer(
@@ -1243,7 +1259,12 @@ fn render_inner_shadow_layer(
         return None;
     }
     let mut pixmap = blank_pixmap(width, height);
-    draw_inner_shadow(&mut pixmap, geometry.inner_rect, geometry.radius, ish_config);
+    draw_inner_shadow(
+        &mut pixmap,
+        geometry.inner_rect,
+        geometry.radius,
+        ish_config,
+    );
     Some(pixmap)
 }
 
@@ -1381,11 +1402,9 @@ fn parse_hex_color(hex: &str, alpha: f32) -> Color {
     Color::from_rgba8(r, g, b, (alpha * (hex_a as f32)) as u8)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn test_pattern_size_does_not_change_when_thinner_side_is_enabled() {
@@ -1446,10 +1465,22 @@ mod tests {
         };
 
         let mut bottom_only_pixmap = Pixmap::new(64, 64).unwrap();
-        draw_pattern(&mut bottom_only_pixmap, outer_rect, inner_rect, 0.0, &bottom_only);
+        draw_pattern(
+            &mut bottom_only_pixmap,
+            outer_rect,
+            inner_rect,
+            0.0,
+            &bottom_only,
+        );
 
         let mut bottom_and_left_pixmap = Pixmap::new(64, 64).unwrap();
-        draw_pattern(&mut bottom_and_left_pixmap, outer_rect, inner_rect, 0.0, &bottom_and_left);
+        draw_pattern(
+            &mut bottom_and_left_pixmap,
+            outer_rect,
+            inner_rect,
+            0.0,
+            &bottom_and_left,
+        );
         let _ = std::fs::remove_file(&svg_path);
 
         assert!(bottom_only_pixmap.pixel(32, 45).unwrap().alpha() > 0);
@@ -1508,8 +1539,16 @@ mod tests {
 
         assert_eq!(pixel[0], 0);
         assert_eq!(pixel[1], 0);
-        assert!(pixel[2] >= 63 && pixel[2] <= 65, "expected premultiplied red near 64, got {}", pixel[2]);
-        assert!(pixel[3] >= 63 && pixel[3] <= 65, "expected alpha near 64, got {}", pixel[3]);
+        assert!(
+            pixel[2] >= 63 && pixel[2] <= 65,
+            "expected premultiplied red near 64, got {}",
+            pixel[2]
+        );
+        assert!(
+            pixel[3] >= 63 && pixel[3] <= 65,
+            "expected alpha near 64, got {}",
+            pixel[3]
+        );
     }
 
     #[test]
@@ -1748,7 +1787,10 @@ mod tests {
             }
         }
 
-        assert!(saw_partial_alpha, "expected partially covered pixels around the rounded inner cutout edge");
+        assert!(
+            saw_partial_alpha,
+            "expected partially covered pixels around the rounded inner cutout edge"
+        );
     }
 
     #[test]
@@ -1997,8 +2039,7 @@ mod tests {
 
         use crate::config::{
             MonitorPatternConfig, MonitorPatternSourcesConfig, PatternCornersConfig,
-            PatternLayoutConfig, PatternRepeatConfig, PatternSidesConfig,
-            PatternTransformConfig,
+            PatternLayoutConfig, PatternRepeatConfig, PatternSidesConfig, PatternTransformConfig,
         };
 
         let top_svg = temp_dir().join("rustbar-pattern-side-top.svg");
@@ -2106,15 +2147,14 @@ mod tests {
         let _ = fs::remove_file(bottom_svg);
     }
 
-
     #[test]
     fn test_pattern_corner_sources_render_different_corner_motif() {
         use std::env::temp_dir;
         use std::fs;
 
         use crate::config::{
-            MonitorPatternConfig, PatternCornersConfig, PatternLayoutConfig,
-            PatternRepeatConfig, PatternSidesConfig, PatternTransformConfig,
+            MonitorPatternConfig, PatternCornersConfig, PatternLayoutConfig, PatternRepeatConfig,
+            PatternSidesConfig, PatternTransformConfig,
         };
 
         let corner_svg = temp_dir().join("rustbar-pattern-corner-top-left.svg");

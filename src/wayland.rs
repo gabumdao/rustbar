@@ -123,8 +123,7 @@ impl OutputHandler for State {
                 layer.set_size(0, 0);
                 layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
                 let (scale, transform) = self.apply_surface_output_state(&layer, scale, transform);
-                let hidden = self.manually_hidden
-                    || self.manually_hidden_outputs.contains(&name);
+                let hidden = self.manually_hidden || self.manually_hidden_outputs.contains(&name);
                 self.apply_layer_surface_config(&layer, qh, &layer_config, hidden);
 
                 let id = layer.wl_surface().id().protocol_id();

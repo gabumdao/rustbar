@@ -3,7 +3,11 @@ pub mod render;
 pub mod state;
 pub mod wayland;
 
-use std::{io::{BufRead, BufReader, Read, Write}, os::unix::net::UnixListener, path::PathBuf};
+use std::{
+    io::{BufRead, BufReader, Read, Write},
+    os::unix::net::UnixListener,
+    path::PathBuf,
+};
 use wayland_client::Connection;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +52,10 @@ fn normalize_watch_path(path: &std::path::Path) -> std::path::PathBuf {
 fn tracked_reload_files(
     files: &[std::path::PathBuf],
 ) -> std::collections::BTreeSet<std::path::PathBuf> {
-    files.iter().map(|file| normalize_watch_path(file)).collect()
+    files
+        .iter()
+        .map(|file| normalize_watch_path(file))
+        .collect()
 }
 
 fn watcher_paths(files: &[std::path::PathBuf]) -> std::collections::BTreeSet<std::path::PathBuf> {
@@ -96,7 +103,11 @@ fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
                     return None;
                 }
             }
-            Some(if json { IpcCommand::ReloadJson } else { IpcCommand::Reload })
+            Some(if json {
+                IpcCommand::ReloadJson
+            } else {
+                IpcCommand::Reload
+            })
         }
         "refresh" => {
             let mut json = false;
@@ -107,7 +118,11 @@ fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
                     return None;
                 }
             }
-            Some(if json { IpcCommand::RefreshJson } else { IpcCommand::Refresh })
+            Some(if json {
+                IpcCommand::RefreshJson
+            } else {
+                IpcCommand::Refresh
+            })
         }
         "fullscreen" | "check-fullscreen" | "check_fullscreen" => {
             let mut json = false;
@@ -243,8 +258,8 @@ fn run() -> Result<(), String> {
         .map_err(|err| format!("failed to create the Wayland event queue: {}", err))?;
     let qh = event_queue.handle();
 
-    let mut event_loop: calloop::EventLoop<state::State> =
-        calloop::EventLoop::try_new().map_err(|err| format!("failed to create the event loop: {}", err))?;
+    let mut event_loop: calloop::EventLoop<state::State> = calloop::EventLoop::try_new()
+        .map_err(|err| format!("failed to create the event loop: {}", err))?;
     let loop_handle = event_loop.handle();
     let loop_signal = event_loop.get_signal();
 
@@ -332,8 +347,9 @@ fn run() -> Result<(), String> {
         .map_err(|err| format!("initial Wayland roundtrip failed: {}", err))?;
 
     state.shm = Some(
-        smithay_client_toolkit::shm::Shm::bind(&globals, &qh)
-            .map_err(|_| "wl_shm is not available; rustbar requires shared-memory buffer support".to_string())?,
+        smithay_client_toolkit::shm::Shm::bind(&globals, &qh).map_err(|_| {
+            "wl_shm is not available; rustbar requires shared-memory buffer support".to_string()
+        })?,
     );
     state.layer_shell = Some(
         smithay_client_toolkit::shell::wlr_layer::LayerShell::bind(&globals, &qh)
@@ -347,100 +363,146 @@ fn run() -> Result<(), String> {
 
     calloop_wayland_source::WaylandSource::new(conn.clone(), event_queue)
         .insert(loop_handle.clone())
-        .map_err(|err| format!("failed to insert the Wayland source into the event loop: {}", err))?;
-
+        .map_err(|err| {
+            format!(
+                "failed to insert the Wayland source into the event loop: {}",
+                err
+            )
+        })?;
 
     if let Some(socket_path) = control_socket_path() {
         let tx_control = tx.clone();
         // Refuse to unlink another running instance's control socket.
         let socket_ready = match std::os::unix::net::UnixStream::connect(&socket_path) {
             Ok(_) => {
-                log::error!("Another rustbar instance is already listening on {}", socket_path.display());
+                log::error!(
+                    "Another rustbar instance is already listening on {}",
+                    socket_path.display()
+                );
                 false
             }
-            Err(_) if socket_path.exists() => {
-                match std::fs::symlink_metadata(&socket_path) {
-                    Ok(meta) if std::os::unix::fs::FileTypeExt::is_socket(&meta.file_type()) => {
-                        std::fs::remove_file(&socket_path).is_ok()
-                    }
-                    _ => false,
+            Err(_) if socket_path.exists() => match std::fs::symlink_metadata(&socket_path) {
+                Ok(meta) if std::os::unix::fs::FileTypeExt::is_socket(&meta.file_type()) => {
+                    std::fs::remove_file(&socket_path).is_ok()
                 }
-            }
+                _ => false,
+            },
             Err(_) => true,
         };
 
         if socket_ready {
-        match UnixListener::bind(&socket_path) {
-            Ok(listener) => {
-                log::info!(
-                    "Listening for control commands on {}",
-                    socket_path.display()
-                );
-                std::thread::spawn(move || {
-                    for stream in listener.incoming() {
-                        let mut stream = match stream {
-                            Ok(stream) => stream,
-                            Err(err) => {
-                                log::warn!("Control socket accept failed: {}", err);
+            match UnixListener::bind(&socket_path) {
+                Ok(listener) => {
+                    log::info!(
+                        "Listening for control commands on {}",
+                        socket_path.display()
+                    );
+                    std::thread::spawn(move || {
+                        for stream in listener.incoming() {
+                            let mut stream = match stream {
+                                Ok(stream) => stream,
+                                Err(err) => {
+                                    log::warn!("Control socket accept failed: {}", err);
+                                    continue;
+                                }
+                            };
+
+                            let _ =
+                                stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                            let _ =
+                                stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
+                            let mut line = String::new();
+                            let read_result = {
+                                let reader = BufReader::new(&stream);
+                                reader.take(4097).read_line(&mut line)
+                            };
+                            if let Err(err) = read_result {
+                                let _ = stream.write_all(
+                                    format!("error: failed to read command: {}\n", err).as_bytes(),
+                                );
                                 continue;
                             }
-                        };
 
-                        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
-                        let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
-                        let mut line = String::new();
-                        let read_result = {
-                            let reader = BufReader::new(&stream);
-                            reader.take(4097).read_line(&mut line)
-                        };
-                        if let Err(err) = read_result {
-                            let _ = stream.write_all(
-                                format!("error: failed to read command: {}\n", err).as_bytes(),
-                            );
-                            continue;
-                        }
-
-                        if line.len() > 4096 || !line.ends_with('\n') {
-                            let _ = stream.write_all(b"error: command too long or unterminated\n");
-                            continue;
-                        }
-                        let trimmed = line.trim();
-                        match parse_ipc_command(trimmed) {
-                            Some(command) => {
-                                let wants_response = matches!(command, IpcCommand::Reload | IpcCommand::ReloadJson | IpcCommand::Refresh | IpcCommand::RefreshJson | IpcCommand::CheckFullscreen | IpcCommand::CheckFullscreenJson | IpcCommand::ShowJson | IpcCommand::HideJson | IpcCommand::ToggleJson | IpcCommand::ShowOutputJson(_) | IpcCommand::HideOutputJson(_) | IpcCommand::ToggleOutputJson(_) | IpcCommand::Status | IpcCommand::StatusOutput(_) | IpcCommand::StatusJson | IpcCommand::StatusOutputJson(_) | IpcCommand::ListOutputs | IpcCommand::ListOutputsJson | IpcCommand::Show | IpcCommand::Hide | IpcCommand::Toggle | IpcCommand::ShowOutput(_) | IpcCommand::HideOutput(_) | IpcCommand::ToggleOutput(_));
-                                let response = if wants_response {
-                                    let (tx_response, rx_response) = std::sync::mpsc::channel();
-                                    match tx_control.send(AppEvent::Command(command, Some(tx_response))) {
-                                        Ok(()) => match rx_response.recv_timeout(std::time::Duration::from_secs(1)) {
-                                            Ok(response) => response,
-                                            Err(_) => "error: timed out waiting for rustbar status\n".to_string(),
-                                        },
-                                        Err(_) => "error: rustbar is shutting down\n".to_string(),
-                                    }
-                                } else if tx_control.send(AppEvent::Command(command, None)).is_ok() {
-                                    "ok\n".to_string()
-                                } else {
-                                    "error: rustbar is shutting down\n".to_string()
-                                };
-                                let _ = stream.write_all(response.as_bytes());
+                            if line.len() > 4096 || !line.ends_with('\n') {
+                                let _ =
+                                    stream.write_all(b"error: command too long or unterminated\n");
+                                continue;
                             }
-                            None => {
-                                let _ = stream.write_all(
+                            let trimmed = line.trim();
+                            match parse_ipc_command(trimmed) {
+                                Some(command) => {
+                                    let wants_response = matches!(
+                                        command,
+                                        IpcCommand::Reload
+                                            | IpcCommand::ReloadJson
+                                            | IpcCommand::Refresh
+                                            | IpcCommand::RefreshJson
+                                            | IpcCommand::CheckFullscreen
+                                            | IpcCommand::CheckFullscreenJson
+                                            | IpcCommand::ShowJson
+                                            | IpcCommand::HideJson
+                                            | IpcCommand::ToggleJson
+                                            | IpcCommand::ShowOutputJson(_)
+                                            | IpcCommand::HideOutputJson(_)
+                                            | IpcCommand::ToggleOutputJson(_)
+                                            | IpcCommand::Status
+                                            | IpcCommand::StatusOutput(_)
+                                            | IpcCommand::StatusJson
+                                            | IpcCommand::StatusOutputJson(_)
+                                            | IpcCommand::ListOutputs
+                                            | IpcCommand::ListOutputsJson
+                                            | IpcCommand::Show
+                                            | IpcCommand::Hide
+                                            | IpcCommand::Toggle
+                                            | IpcCommand::ShowOutput(_)
+                                            | IpcCommand::HideOutput(_)
+                                            | IpcCommand::ToggleOutput(_)
+                                    );
+                                    let response = if wants_response {
+                                        let (tx_response, rx_response) = std::sync::mpsc::channel();
+                                        match tx_control
+                                            .send(AppEvent::Command(command, Some(tx_response)))
+                                        {
+                                            Ok(()) => match rx_response
+                                                .recv_timeout(std::time::Duration::from_secs(1))
+                                            {
+                                                Ok(response) => response,
+                                                Err(_) => {
+                                                    "error: timed out waiting for rustbar status\n"
+                                                        .to_string()
+                                                }
+                                            },
+                                            Err(_) => {
+                                                "error: rustbar is shutting down\n".to_string()
+                                            }
+                                        }
+                                    } else if tx_control
+                                        .send(AppEvent::Command(command, None))
+                                        .is_ok()
+                                    {
+                                        "ok\n".to_string()
+                                    } else {
+                                        "error: rustbar is shutting down\n".to_string()
+                                    };
+                                    let _ = stream.write_all(response.as_bytes());
+                                }
+                                None => {
+                                    let _ = stream.write_all(
                                     b"error: unknown command. use reload [--json], refresh [--json], fullscreen [--json], show [--json], hide [--json], toggle [--json], status [--json], list-outputs [--json], or quit\n",
                                 );
+                                }
                             }
                         }
-                    }
-                });
+                    });
+                }
+                Err(err) => {
+                    log::warn!(
+                        "Failed to bind control socket {}: {}",
+                        socket_path.display(),
+                        err
+                    );
+                }
             }
-            Err(err) => {
-                log::warn!(
-                    "Failed to bind control socket {}: {}",
-                    socket_path.display(),
-                    err
-                );
-            }
-        }
         }
     }
 
@@ -828,7 +890,6 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -836,40 +897,103 @@ mod tests {
     #[test]
     fn parse_ipc_command_recognizes_supported_commands() {
         assert_eq!(parse_ipc_command("reload"), Some(IpcCommand::Reload));
-        assert_eq!(parse_ipc_command("reload --json"), Some(IpcCommand::ReloadJson));
+        assert_eq!(
+            parse_ipc_command("reload --json"),
+            Some(IpcCommand::ReloadJson)
+        );
         assert_eq!(parse_ipc_command("refresh"), Some(IpcCommand::Refresh));
-        assert_eq!(parse_ipc_command("refresh --json"), Some(IpcCommand::RefreshJson));
-        assert_eq!(parse_ipc_command("fullscreen"), Some(IpcCommand::CheckFullscreen));
-        assert_eq!(parse_ipc_command("fullscreen --json"), Some(IpcCommand::CheckFullscreenJson));
+        assert_eq!(
+            parse_ipc_command("refresh --json"),
+            Some(IpcCommand::RefreshJson)
+        );
+        assert_eq!(
+            parse_ipc_command("fullscreen"),
+            Some(IpcCommand::CheckFullscreen)
+        );
+        assert_eq!(
+            parse_ipc_command("fullscreen --json"),
+            Some(IpcCommand::CheckFullscreenJson)
+        );
         assert_eq!(parse_ipc_command("show"), Some(IpcCommand::Show));
         assert_eq!(parse_ipc_command("hide"), Some(IpcCommand::Hide));
         assert_eq!(parse_ipc_command("toggle"), Some(IpcCommand::Toggle));
-        assert_eq!(parse_ipc_command("show DP-1"), Some(IpcCommand::ShowOutput("DP-1".to_string())));
-        assert_eq!(parse_ipc_command("hide HDMI-A-1"), Some(IpcCommand::HideOutput("HDMI-A-1".to_string())));
-        assert_eq!(parse_ipc_command("toggle eDP-1"), Some(IpcCommand::ToggleOutput("eDP-1".to_string())));
+        assert_eq!(
+            parse_ipc_command("show DP-1"),
+            Some(IpcCommand::ShowOutput("DP-1".to_string()))
+        );
+        assert_eq!(
+            parse_ipc_command("hide HDMI-A-1"),
+            Some(IpcCommand::HideOutput("HDMI-A-1".to_string()))
+        );
+        assert_eq!(
+            parse_ipc_command("toggle eDP-1"),
+            Some(IpcCommand::ToggleOutput("eDP-1".to_string()))
+        );
         assert_eq!(parse_ipc_command("status"), Some(IpcCommand::Status));
-        assert_eq!(parse_ipc_command("status DP-1"), Some(IpcCommand::StatusOutput("DP-1".to_string())));
+        assert_eq!(
+            parse_ipc_command("status DP-1"),
+            Some(IpcCommand::StatusOutput("DP-1".to_string()))
+        );
         assert_eq!(parse_ipc_command("show --json"), Some(IpcCommand::ShowJson));
-        assert_eq!(parse_ipc_command("hide DP-1 --json"), Some(IpcCommand::HideOutputJson("DP-1".to_string())));
-        assert_eq!(parse_ipc_command("toggle HDMI-A-1 --json"), Some(IpcCommand::ToggleOutputJson("HDMI-A-1".to_string())));
-        assert_eq!(parse_ipc_command("status --json"), Some(IpcCommand::StatusJson));
-        assert_eq!(parse_ipc_command("status DP-1 --json"), Some(IpcCommand::StatusOutputJson("DP-1".to_string())));
-        assert_eq!(parse_ipc_command("list-outputs"), Some(IpcCommand::ListOutputs));
-        assert_eq!(parse_ipc_command("list-outputs --json"), Some(IpcCommand::ListOutputsJson));
+        assert_eq!(
+            parse_ipc_command("hide DP-1 --json"),
+            Some(IpcCommand::HideOutputJson("DP-1".to_string()))
+        );
+        assert_eq!(
+            parse_ipc_command("toggle HDMI-A-1 --json"),
+            Some(IpcCommand::ToggleOutputJson("HDMI-A-1".to_string()))
+        );
+        assert_eq!(
+            parse_ipc_command("status --json"),
+            Some(IpcCommand::StatusJson)
+        );
+        assert_eq!(
+            parse_ipc_command("status DP-1 --json"),
+            Some(IpcCommand::StatusOutputJson("DP-1".to_string()))
+        );
+        assert_eq!(
+            parse_ipc_command("list-outputs"),
+            Some(IpcCommand::ListOutputs)
+        );
+        assert_eq!(
+            parse_ipc_command("list-outputs --json"),
+            Some(IpcCommand::ListOutputsJson)
+        );
         assert_eq!(parse_ipc_command("quit"), Some(IpcCommand::Quit));
     }
 
     #[test]
     fn parse_ipc_command_accepts_aliases_and_whitespace() {
-        assert_eq!(parse_ipc_command("  check_fullscreen  "), Some(IpcCommand::CheckFullscreen));
-        assert_eq!(parse_ipc_command("check-fullscreen --json"), Some(IpcCommand::CheckFullscreenJson));
+        assert_eq!(
+            parse_ipc_command("  check_fullscreen  "),
+            Some(IpcCommand::CheckFullscreen)
+        );
+        assert_eq!(
+            parse_ipc_command("check-fullscreen --json"),
+            Some(IpcCommand::CheckFullscreenJson)
+        );
         assert_eq!(parse_ipc_command("info"), Some(IpcCommand::Status));
-        assert_eq!(parse_ipc_command("info HDMI-A-1"), Some(IpcCommand::StatusOutput("HDMI-A-1".to_string())));
-        assert_eq!(parse_ipc_command("info HDMI-A-1 --json"), Some(IpcCommand::StatusOutputJson("HDMI-A-1".to_string())));
+        assert_eq!(
+            parse_ipc_command("info HDMI-A-1"),
+            Some(IpcCommand::StatusOutput("HDMI-A-1".to_string()))
+        );
+        assert_eq!(
+            parse_ipc_command("info HDMI-A-1 --json"),
+            Some(IpcCommand::StatusOutputJson("HDMI-A-1".to_string()))
+        );
         assert_eq!(parse_ipc_command("outputs"), Some(IpcCommand::ListOutputs));
-        assert_eq!(parse_ipc_command("outputs --json"), Some(IpcCommand::ListOutputsJson));
-        assert_eq!(parse_ipc_command("  show   DP-1  "), Some(IpcCommand::ShowOutput("DP-1".to_string())));
-        assert_eq!(parse_ipc_command("  refresh   --json  "), Some(IpcCommand::RefreshJson));
+        assert_eq!(
+            parse_ipc_command("outputs --json"),
+            Some(IpcCommand::ListOutputsJson)
+        );
+        assert_eq!(
+            parse_ipc_command("  show   DP-1  "),
+            Some(IpcCommand::ShowOutput("DP-1".to_string()))
+        );
+        assert_eq!(
+            parse_ipc_command("  refresh   --json  "),
+            Some(IpcCommand::RefreshJson)
+        );
         assert_eq!(parse_ipc_command("EXIT"), Some(IpcCommand::Quit));
         assert_eq!(parse_ipc_command("stop"), Some(IpcCommand::Quit));
     }

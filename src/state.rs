@@ -120,7 +120,11 @@ impl State {
         let (width, height) =
             scaled_buffer_dimensions(logical_width, logical_height, scale, transform);
         let Some(size) = checked_frame_buffer_size(width, height) else {
-            log::warn!("Skipping invalid or oversized rustbar buffer {}x{}", width, height);
+            log::warn!(
+                "Skipping invalid or oversized rustbar buffer {}x{}",
+                width,
+                height
+            );
             return;
         };
         let output_name = self
@@ -135,8 +139,7 @@ impl State {
         } else {
             let m_config = self.config.for_monitor(&output_name);
             if m_config.enabled.unwrap_or(true) {
-                self
-                    .render_caches
+                self.render_caches
                     .entry(surface_id)
                     .or_default()
                     .draw_frame(width, height, &m_config)
@@ -148,7 +151,9 @@ impl State {
         if pixels.len() != size {
             log::warn!(
                 "Skipping buffer update for {}: renderer returned {} bytes, expected {}",
-                output_name, pixels.len(), size
+                output_name,
+                pixels.len(),
+                size
             );
             return;
         }
@@ -162,7 +167,11 @@ impl State {
                         self.pools.insert(surface_id, (pool, None));
                     }
                     Err(err) => {
-                        log::warn!("Unable to allocate SHM slot pool for {}: {}", output_name, err);
+                        log::warn!(
+                            "Unable to allocate SHM slot pool for {}: {}",
+                            output_name,
+                            err
+                        );
                         return;
                     }
                 }
@@ -305,7 +314,8 @@ impl State {
         hidden_outputs.sort();
         hidden_outputs.dedup();
 
-        let mut manually_hidden_outputs: Vec<String> = self.manually_hidden_outputs.iter().cloned().collect();
+        let mut manually_hidden_outputs: Vec<String> =
+            self.manually_hidden_outputs.iter().cloned().collect();
         manually_hidden_outputs.sort();
 
         format!(
@@ -346,20 +356,27 @@ manually_hidden_outputs={}
         let normalized = output_name.trim();
         if normalized.is_empty() {
             return "error: output name cannot be blank
-".to_string();
+"
+            .to_string();
         }
 
-        let Some(surface_id) = self
-            .output_names
-            .iter()
-            .find_map(|(surface_id, name)| if name == normalized { Some(*surface_id) } else { None })
-        else {
-            return format!("status=missing
+        let Some(surface_id) = self.output_names.iter().find_map(|(surface_id, name)| {
+            if name == normalized {
+                Some(*surface_id)
+            } else {
+                None
+            }
+        }) else {
+            return format!(
+                "status=missing
 output={}
-", normalized);
+",
+                normalized
+            );
         };
 
-        let (logical_width, logical_height) = self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
+        let (logical_width, logical_height) =
+            self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
         let scale = self.output_scales.get(&surface_id).copied().unwrap_or(1);
         let transform = self
             .output_transforms
@@ -440,12 +457,15 @@ effective_hidden={}
             }
         }
         lines.push(String::new());
-        lines.join("
-")
+        lines.join(
+            "
+",
+        )
     }
 
     fn output_snapshot(&self, output_name: &str, surface_id: u32) -> serde_json::Value {
-        let (logical_width, logical_height) = self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
+        let (logical_width, logical_height) =
+            self.dimensions.get(&surface_id).copied().unwrap_or((0, 0));
         let scale = self.output_scales.get(&surface_id).copied().unwrap_or(1);
         let transform = self
             .output_transforms
@@ -485,7 +505,8 @@ effective_hidden={}
         fullscreen_outputs.sort();
         fullscreen_outputs.dedup();
 
-        let mut manually_hidden_outputs: Vec<String> = self.manually_hidden_outputs.iter().cloned().collect();
+        let mut manually_hidden_outputs: Vec<String> =
+            self.manually_hidden_outputs.iter().cloned().collect();
         manually_hidden_outputs.sort();
 
         serde_json::to_string_pretty(&json!({
@@ -503,20 +524,25 @@ effective_hidden={}
             s.push('\n');
             s
         })
-        .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize status\"}\n".to_string())
+        .unwrap_or_else(|_| {
+            "{\"status\":\"error\",\"message\":\"failed to serialize status\"}\n".to_string()
+        })
     }
 
     pub fn status_summary_for_output_json(&self, output_name: &str) -> String {
         let normalized = output_name.trim();
         if normalized.is_empty() {
-            return "{\"status\":\"error\",\"message\":\"output name cannot be blank\"}\n".to_string();
+            return "{\"status\":\"error\",\"message\":\"output name cannot be blank\"}\n"
+                .to_string();
         }
 
-        let Some(surface_id) = self
-            .output_names
-            .iter()
-            .find_map(|(surface_id, name)| if name == normalized { Some(*surface_id) } else { None })
-        else {
+        let Some(surface_id) = self.output_names.iter().find_map(|(surface_id, name)| {
+            if name == normalized {
+                Some(*surface_id)
+            } else {
+                None
+            }
+        }) else {
             return serde_json::to_string_pretty(&json!({
                 "status": "missing",
                 "output": normalized,
@@ -525,7 +551,10 @@ effective_hidden={}
                 s.push('\n');
                 s
             })
-            .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize output status\"}\n".to_string());
+            .unwrap_or_else(|_| {
+                "{\"status\":\"error\",\"message\":\"failed to serialize output status\"}\n"
+                    .to_string()
+            });
         };
 
         serde_json::to_string_pretty(&json!({
@@ -536,7 +565,9 @@ effective_hidden={}
             s.push('\n');
             s
         })
-        .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize output status\"}\n".to_string())
+        .unwrap_or_else(|_| {
+            "{\"status\":\"error\",\"message\":\"failed to serialize output status\"}\n".to_string()
+        })
     }
 
     pub fn list_outputs_summary_json(&self) -> String {
@@ -561,7 +592,9 @@ effective_hidden={}
             s.push('\n');
             s
         })
-        .unwrap_or_else(|_| "{\"status\":\"error\",\"message\":\"failed to serialize outputs list\"}\n".to_string())
+        .unwrap_or_else(|_| {
+            "{\"status\":\"error\",\"message\":\"failed to serialize outputs list\"}\n".to_string()
+        })
     }
     pub fn surface_id_for_output_id(&self, output_id: u32) -> Option<u32> {
         self.output_ids
@@ -680,7 +713,12 @@ effective_hidden={}
                             .iter()
                             .find(|layer| layer.wl_surface().id().protocol_id() == surface_id)
                         {
-                            self.apply_layer_surface_config(layer, qh, &layer_config, effectively_hidden);
+                            self.apply_layer_surface_config(
+                                layer,
+                                qh,
+                                &layer_config,
+                                effectively_hidden,
+                            );
                         }
                         needs_refresh = true;
                     }

@@ -317,7 +317,6 @@ impl Default for PatternSidesConfig {
     }
 }
 
-
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
 pub struct PatternSourcesConfig {
     pub top: Option<String>,
@@ -793,7 +792,10 @@ fn apply_named_preset(
         return;
     };
 
-    let mut merged = toml::Value::Table(table_without_keys(preset_table, &["preset", "presets", "monitors", "include"]));
+    let mut merged = toml::Value::Table(table_without_keys(
+        preset_table,
+        &["preset", "presets", "monitors", "include"],
+    ));
     merge_toml_values(
         &mut merged,
         toml::Value::Table(table_without_keys(target, excluded_keys)),
@@ -818,7 +820,10 @@ fn apply_presets_to_config_value(value: &mut toml::Value) -> Vec<String> {
     };
 
     let Some(presets) = presets_value.as_table().cloned() else {
-        warnings.push("top-level presets must be a TOML table; preset application will be skipped".to_string());
+        warnings.push(
+            "top-level presets must be a TOML table; preset application will be skipped"
+                .to_string(),
+        );
         return warnings;
     };
 
@@ -830,7 +835,10 @@ fn apply_presets_to_config_value(value: &mut toml::Value) -> Vec<String> {
         &mut warnings,
     );
 
-    if let Some(monitors) = root.get_mut("monitors").and_then(|value| value.as_table_mut()) {
+    if let Some(monitors) = root
+        .get_mut("monitors")
+        .and_then(|value| value.as_table_mut())
+    {
         for (name, monitor_value) in monitors.iter_mut() {
             match monitor_value.as_table_mut() {
                 Some(monitor_table) => apply_named_preset(
@@ -1394,7 +1402,12 @@ fn load_value_with_includes(
                     merge_toml_values(&mut merged, inc_val);
                 }
                 Err(e) => {
-                    return Err(format!("Failed to load included config {}: {}", inc_path.display(), e).into());
+                    return Err(format!(
+                        "Failed to load included config {}: {}",
+                        inc_path.display(),
+                        e
+                    )
+                    .into());
                 }
             }
         }
@@ -1419,15 +1432,26 @@ fn load_value_with_includes(
 }
 
 fn merge_global_monitor_sections(value: &mut toml::Value) {
-    let Some(root) = value.as_table_mut() else { return };
-    let sections: Vec<(&str, toml::Value)> =
-        ["frame_sides", "inner_shadow", "gradient", "pattern", "layer"]
-            .into_iter()
-            .filter_map(|key| root.get(key).cloned().map(|v| (key, v)))
-            .collect();
-    let Some(monitors) = root.get_mut("monitors").and_then(toml::Value::as_table_mut) else { return };
+    let Some(root) = value.as_table_mut() else {
+        return;
+    };
+    let sections: Vec<(&str, toml::Value)> = [
+        "frame_sides",
+        "inner_shadow",
+        "gradient",
+        "pattern",
+        "layer",
+    ]
+    .into_iter()
+    .filter_map(|key| root.get(key).cloned().map(|v| (key, v)))
+    .collect();
+    let Some(monitors) = root.get_mut("monitors").and_then(toml::Value::as_table_mut) else {
+        return;
+    };
     for (_, monitor) in monitors.iter_mut() {
-        let Some(table) = monitor.as_table_mut() else { continue };
+        let Some(table) = monitor.as_table_mut() else {
+            continue;
+        };
         for (key, global) in &sections {
             if let Some(local) = table.get_mut(*key) {
                 let mut merged = global.clone();
@@ -1514,7 +1538,8 @@ mod tests {
 
     #[test]
     fn nested_monitor_overrides_keep_global_values() {
-        let mut value: toml::Value = toml::from_str(r#"
+        let mut value: toml::Value = toml::from_str(
+            r#"
 [pattern.transform]
 scale = 2.0
 rotation = 10.0
@@ -1525,7 +1550,9 @@ click_through = false
 rotation = 45.0
 [monitors."DP-1".layer]
 level = "top"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         merge_global_monitor_sections(&mut value);
         let cfg: Config = value.try_into().unwrap();
         let monitor = cfg.for_monitor("DP-1");
@@ -1726,11 +1753,17 @@ opacity = 0.3
         assert_eq!(monitor.radius, Some(10));
         assert_eq!(monitor.opacity, Some(0.7));
         assert_eq!(
-            monitor.pattern.as_ref().and_then(|pattern| pattern.source.as_deref()),
+            monitor
+                .pattern
+                .as_ref()
+                .and_then(|pattern| pattern.source.as_deref()),
             Some("thin.svg")
         );
         assert_eq!(
-            monitor.pattern.as_ref().and_then(|pattern| pattern.mode.as_deref()),
+            monitor
+                .pattern
+                .as_ref()
+                .and_then(|pattern| pattern.mode.as_deref()),
             Some("diamond")
         );
         assert_eq!(
@@ -2014,9 +2047,9 @@ level = "overlay"
                 .any(|warning| warning.contains("layer.keyboard_interactivity='sometimes'"))
         );
         assert!(
-            warnings
-                .iter()
-                .any(|warning| warning.contains("pattern layer without setting pattern.source or pattern.sources.<side>"))
+            warnings.iter().any(|warning| warning.contains(
+                "pattern layer without setting pattern.source or pattern.sources.<side>"
+            ))
         );
         assert!(
             warnings
@@ -2160,11 +2193,12 @@ level = "overlay"
         };
 
         let warnings = collect_monitor_validation_warnings("DP-1", &config);
-        assert!(warnings
-            .iter()
-            .any(|warning| warning.contains("pattern.sources.top='missing-top-pattern-asset'")));
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("pattern.sources.top='missing-top-pattern-asset'"))
+        );
     }
-
 
     #[test]
     fn test_collect_monitor_validation_warnings_reports_missing_corner_pattern_asset() {
@@ -2219,9 +2253,9 @@ level = "overlay"
         };
 
         let warnings = collect_monitor_validation_warnings("DP-1", &config);
-        assert!(warnings
-            .iter()
-            .any(|warning| warning.contains("pattern.corners.top_left='missing-corner-pattern-asset'")));
+        assert!(warnings.iter().any(|warning| {
+            warning.contains("pattern.corners.top_left='missing-corner-pattern-asset'")
+        }));
     }
 
     #[test]
