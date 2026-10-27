@@ -25,7 +25,7 @@ Ensure you have a recent Rust toolchain installed, as well as a compatible Wayla
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/rustbar.git # Change this URL to match your Forgejo/GitHub repository
+   git clone https://github.com/benitezgabriel/rustbar.git
    cd rustbar
    ```
 
